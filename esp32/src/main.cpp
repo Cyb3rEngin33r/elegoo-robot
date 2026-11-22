@@ -401,8 +401,16 @@ void setup() {
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
     lastDisconnectReason = info.wifi_sta_disconnected.reason;
   }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-  WiFi.mode(WIFI_STA);
+  // The name must be set before Wi-Fi starts, or the router sees the default
+  // "esp32s3-XXXXXX" instead.
   WiFi.setHostname(HOSTNAME);
+  WiFi.mode(WIFI_STA);
+#ifdef STATIC_IP
+  // Fixed address from secrets.h (otherwise DHCP).
+  WiFi.config(IPAddress(STATIC_IP), IPAddress(STATIC_GATEWAY), IPAddress(STATIC_SUBNET),
+              IPAddress(STATIC_DNS));
+  Serial.println("Using fixed address " + IPAddress(STATIC_IP).toString());
+#endif
   WiFi.setAutoReconnect(true);
   // Without this the radio dozes between beacons and can miss ARP requests,
   // which makes the module unreachable on some (mesh) routers.

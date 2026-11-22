@@ -112,7 +112,7 @@ also shows live video from the car's camera.
 ```bash
 car-dashboard                       # over USB, auto-detects the car's port
 car-dashboard --port /dev/ttyUSB1
-car-dashboard --wifi 192.168.68.52  # over Wi-Fi via the camera module
+car-dashboard --wifi 192.168.68.20  # over Wi-Fi via the camera module
 car-dashboard --wifi                # same, using elegoo-car.local
 ```
 
@@ -125,7 +125,8 @@ Then open http://127.0.0.1:8000.
   first one pauses or closes. `--camera URL` overrides the stream address,
   `--camera none` hides it.
 - `elegoo-car.local` doesn't always resolve on a mesh network; the IP address
-  always works. Reserve the car's address in the router so it doesn't change.
+  always works. The car uses a fixed address (192.168.68.20 here) set in
+  `esp32/include/secrets.h`; see the Wi-Fi section.
 - While the dashboard runs it holds the serial port: stop it before `pio run -t upload`.
 - The battery voltage is approximate (Elegoo's divider formula). It reads about
   7.2 V on a charged pack, which is plausible, but it isn't checked with a meter.
@@ -146,6 +147,10 @@ streams video from the camera. Elegoo's phone app no longer works.
 1. `cp esp32/include/secrets.h.example esp32/include/secrets.h` and fill in your
    2.4 GHz Wi-Fi name, password, and a password for wireless updates. The file
    is in `.gitignore` and the pre-commit hook refuses to commit it.
+   Optionally set `STATIC_IP` (plus gateway, subnet and DNS) for a fixed
+   address; pick one outside the router's DHCP range (here the Deco hands out
+   .50-.250, so the car uses .20). Without it the module
+   gets an address by DHCP.
 2. Take the module off the car and connect its USB-C port to the laptop with a
    **USB-A to USB-C data cable** (C-to-C cables don't power it). Put it in
    download mode: hold BOOT, tap RST, release BOOT.
@@ -157,7 +162,7 @@ Later updates go over Wi-Fi with the module on the car:
 ```bash
 cd esp32
 read -rs CAR_OTA_PASSWORD && export CAR_OTA_PASSWORD   # typed, not shown or saved
-pio run -e ota -t upload --upload-port 192.168.68.52
+pio run -e ota -t upload --upload-port 192.168.68.20
 ```
 
 **Link pins.** Elegoo doesn't document them; on this module they were found
@@ -166,7 +171,7 @@ goes to the car. These are the defaults. TCP port 2324 has the tools (`status`,
 `scan`, `edges`, `listen`, `findtx`, `pins`) in case another module differs:
 
 ```bash
-nc 192.168.68.52 2324
+nc 192.168.68.20 2324
 ```
 
 **Camera.** The sensor is an OV3660, wired like Espressif's ESP32-S3-EYE (the
@@ -175,9 +180,9 @@ pin numbers were read from Elegoo's original firmware; see
 
 | URL | |
 |---|---|
-| `http://192.168.68.52:81/stream` | MJPEG live video, 640x480, ~24 fps |
-| `http://192.168.68.52/capture` | one JPEG |
-| `http://192.168.68.52/control?framesize=svga&quality=10` | change size (`qvga` `vga` `svga` `xga` `hd`), JPEG quality (4-63, lower is better), `vflip`, `hmirror` (0/1) |
+| `http://192.168.68.20:81/stream` | MJPEG live video, 640x480, ~24 fps |
+| `http://192.168.68.20/capture` | one JPEG |
+| `http://192.168.68.20/control?framesize=svga&quality=10` | change size (`qvga` `vga` `svga` `xga` `hd`), JPEG quality (4-63, lower is better), `vflip`, `hmirror` (0/1) |
 
 Settings from `/control` last until the module restarts.
 
