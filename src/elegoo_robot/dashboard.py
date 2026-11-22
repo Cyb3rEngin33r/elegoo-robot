@@ -11,6 +11,9 @@ that shows them live. Run with:
 Over Wi-Fi the page also shows the camera's live video, which the browser
 loads straight from the car (http://<car>:81/stream).
 
+The page can also drive the car (POST /command). Only the page itself can
+send commands: requests must be JSON from the dashboard's own origin.
+
 then open http://127.0.0.1:8000 in a browser.
 
 Opening the USB serial port restarts the car's board (that's how Arduino USB
@@ -32,6 +35,7 @@ import serial
 import serial.tools.list_ports
 import uvicorn
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
@@ -41,6 +45,9 @@ CH340_VID = 0x1A86  # USB-serial chip on the Elegoo UNO board
 BOOT_WAIT_S = 2.5  # the board restarts when the port opens
 STATUS_TIMEOUT_S = 3.0  # no report for this long: ask for reports again
 LOG_LINES = 200
+# Commands the page may send: drive, stop, speed, modes, camera head, head trim.
+ALLOWED_COMMANDS = set("wasdx+-of[]\\<>")
+COMMAND_GAP_S = 0.012  # the car ignores characters that arrive within 5 ms of each other
 WIFI_HOST = "elegoo-car.local"
 WIFI_PORT = 2323
 CAMERA_STREAM = "http://{host}:81/stream"
@@ -70,9 +77,29 @@ class CarLink:
         self.log: deque[tuple[int, float, str]] = deque(maxlen=LOG_LINES)
         self.log_seq = 0
         self.version = 0  # bumped on every change, so streams know when to send
+        self.ser: serial.SerialBase | None = None
+        self.write_lock = threading.Lock()
+        self.last_write = 0.0
 
     def start(self) -> None:
         threading.Thread(target=self._run, name="car-link", daemon=True).start()
+
+    def send(self, data: bytes) -> bool:
+        """Write to the car, one character at a time with a gap between them."""
+        with self.write_lock:
+            ser = self.ser
+            if ser is None:
+                return False
+            try:
+                for ch in data:
+                    wait = COMMAND_GAP_S - (time.time() - self.last_write)
+                    if wait > 0:
+                        time.sleep(wait)
+                    ser.write(bytes([ch]))
+                    self.last_write = time.time()
+            except (serial.SerialException, OSError):
+                return False
+            return True
 
     def _changed(self) -> None:
         self.version += 1
@@ -108,25 +135,32 @@ class CarLink:
         # `port` is a device (/dev/ttyUSB1) or a pyserial URL (socket://host:port).
         over_wifi = port.startswith("socket://")
         with serial.serial_for_url(port, BAUD, timeout=0.2) as ser:
-            self._set_connected(True, port)
-            if over_wifi:
-                self._add_log(f"[dashboard] connected to {port}")
-            else:
-                self._add_log(f"[dashboard] connected to {port}, waiting for the car to start")
-                time.sleep(BOOT_WAIT_S)
-            ser.write(b"j")
-            asked_at = time.time()
-            buf = b""
-            while True:
-                buf += ser.read(512)
-                while b"\n" in buf:
-                    raw, buf = buf.split(b"\n", 1)
-                    self._handle_line(raw.decode(errors="replace").strip())
-                # The car restarted or stopped reporting: ask again.
-                now = time.time()
-                if now - max(self.status_time, asked_at) > STATUS_TIMEOUT_S:
-                    ser.write(b"j")
-                    asked_at = now
+            self.ser = ser
+            try:
+                self._run_session(ser, port, over_wifi)
+            finally:
+                self.ser = None
+
+    def _run_session(self, ser: serial.SerialBase, port: str, over_wifi: bool) -> None:
+        self._set_connected(True, port)
+        if over_wifi:
+            self._add_log(f"[dashboard] connected to {port}")
+        else:
+            self._add_log(f"[dashboard] connected to {port}, waiting for the car to start")
+            time.sleep(BOOT_WAIT_S)
+        self.send(b"j")
+        asked_at = time.time()
+        buf = b""
+        while True:
+            buf += ser.read(512)
+            while b"\n" in buf:
+                raw, buf = buf.split(b"\n", 1)
+                self._handle_line(raw.decode(errors="replace").strip())
+            # The car restarted or stopped reporting: ask again.
+            now = time.time()
+            if now - max(self.status_time, asked_at) > STATUS_TIMEOUT_S:
+                self.send(b"j")
+                asked_at = now
 
     def _handle_line(self, line: str) -> None:
         if not line:
@@ -192,7 +226,31 @@ def create_app(link: CarLink, camera_url: str | None = None) -> Starlette:
     async def config(request: Request) -> JSONResponse:
         return JSONResponse({"camera": camera_url})
 
-    return Starlette(routes=[Route("/", index), Route("/events", events), Route("/config", config)])
+    async def command(request: Request) -> JSONResponse:
+        # Only the dashboard's own page may drive the car. Requiring JSON makes
+        # browsers preflight cross-site requests (which we don't allow), and
+        # the Origin check rejects any other site outright.
+        origin = request.headers.get("origin")
+        if origin is not None and origin != f"http://{request.headers.get('host')}":
+            return JSONResponse({"ok": False, "error": "forbidden origin"}, status_code=403)
+        if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+            return JSONResponse({"ok": False, "error": "expected JSON"}, status_code=415)
+        try:
+            cmd = (await request.json()).get("cmd")
+        except (json.JSONDecodeError, AttributeError):
+            cmd = None
+        if not isinstance(cmd, str) or len(cmd) != 1 or cmd not in ALLOWED_COMMANDS:
+            return JSONResponse({"ok": False, "error": "unknown command"}, status_code=400)
+        if not await run_in_threadpool(link.send, cmd.encode()):
+            return JSONResponse({"ok": False, "error": "car not connected"}, status_code=503)
+        return JSONResponse({"ok": True})
+
+    return Starlette(routes=[
+        Route("/", index),
+        Route("/events", events),
+        Route("/config", config),
+        Route("/command", command, methods=["POST"]),
+    ])
 
 
 def main() -> None:

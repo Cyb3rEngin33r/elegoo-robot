@@ -7,6 +7,7 @@
 //   p        ping the ultrasonic sensor
 //   l        read the line tracker
 //   [ / ] /  pan servo left / right / center ( '\' )
+//   < / >    nudge the servo's centre trim 1 degree left / right (saved)
 //   o        obstacle avoidance on/off
 //   f        line following on/off
 //   j / J    status reports for the dashboard on / off (JSON, 4 per second)
@@ -49,7 +50,7 @@ unsigned long lastByteAt = 0;
 
 void help() {
   Serial.println(F("Commands: w s a d (drive) x (stop) +/- (speed) p (ping) "
-                   "l (line) [ ] \\ (servo) o (avoid) f (follow line) j/J (status on/off) h (help)"));
+                   "l (line) [ ] \\ (servo) < > (trim) o (avoid) f (follow line) j/J (status on/off) h (help)"));
 }
 
 bool modeActive() { return Avoid::active() || Follow::active(); }
@@ -177,6 +178,12 @@ void handleCommand(char c) {
     case '\\': panAngle = 90; Sensors::look(panAngle); break;
     case 'j': Status::setEnabled(true); break;
     case 'J': Status::setEnabled(false); break;
+    case '<':
+    case '>':
+      Sensors::setTrim(Sensors::trim() + (c == '<' ? 1 : -1));
+      Serial.print(F("servo trim: "));
+      Serial.println(Sensors::trim());
+      break;
     case 'h': help(); break;
     default: break;  // ignore newlines etc.
   }

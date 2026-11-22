@@ -67,6 +67,23 @@
   .camera .msg { position: absolute; inset: 0; display: grid; place-items: center; color: #c9ced8; font-size: 14px; text-align: center; padding: 16px; }
   .camera .msg[hidden] { display: none; }  /* display: grid above would override [hidden] */
   .camera .bar-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .drive { margin-bottom: 12px; }
+  .drive-grid { display: grid; grid-template-columns: auto 1fr; gap: 16px 24px; align-items: center; }
+  @media (max-width: 560px) { .drive-grid { grid-template-columns: 1fr; justify-items: center; } }
+  .dpad { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(3, 56px); gap: 6px; touch-action: none; user-select: none; }
+  .dpad button, .ctl button { font: inherit; border-radius: 10px; border: 1px solid var(--line); background: var(--track); color: var(--text); cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .dpad button { font-size: 20px; }
+  .dpad button.held, .ctl button.held { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .dpad .stop { background: var(--bad); border-color: var(--bad); color: #fff; font-size: 13px; font-weight: 700; }
+  .ctl { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .ctl .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ctl .row > span:first-child { width: 64px; color: var(--muted); font-size: 13px; }
+  .ctl button { padding: 7px 12px; }
+  .ctl button.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .ctl .val { min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
+  .keys { color: var(--muted); font-size: 12.5px; }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+  .drive[aria-disabled="true"] .dpad, .drive[aria-disabled="true"] .ctl { opacity: .4; pointer-events: none; }
   .camera button { font: inherit; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
 </style>
 </head>
@@ -81,6 +98,25 @@
     <h2>Camera</h2>
     <div class="frame"><img id="cam" alt="Live video from the car"><div class="msg" id="camMsg">Connecting to the camera…</div></div>
     <div class="bar-row"><span id="camInfo"></span><button id="camToggle" type="button">Pause video</button></div>
+  </section>
+
+  <section class="card drive" id="drive" aria-disabled="true">
+    <h2>Drive</h2>
+    <div class="drive-grid">
+      <div class="dpad" id="dpad">
+        <span></span><button data-hold="w" title="Forward (W / ↑)">▲</button><span></span>
+        <button data-hold="a" title="Spin left (A / ←)">◀</button><button class="stop" data-cmd="x" title="Stop (Space / Esc)">STOP</button><button data-hold="d" title="Spin right (D / →)">▶</button>
+        <span></span><button data-hold="s" title="Back (S / ↓)">▼</button><span></span>
+      </div>
+      <div class="ctl">
+        <div class="row"><span>Speed</span><button data-cmd="-" title="Slower (−)">−</button><span class="val" id="speedVal">–</span><button data-cmd="+" title="Faster (+)">+</button></div>
+        <div class="row"><span>Look</span><button data-cmd="[" title="Look left ([)">◀ Left</button><button data-cmd="\" title="Look ahead (\)">Ahead</button><button data-cmd="]" title="Look right (])">Right ▶</button></div>
+        <div class="row"><span>Trim</span><button data-cmd="<" title="Nudge the head's centre 1° left (saved on the car)">◀ 1°</button><span class="val" id="trimVal">–</span><button data-cmd=">" title="Nudge the head's centre 1° right (saved on the car)">1° ▶</button></div>
+        <div class="row"><span>Mode</span><button data-cmd="o" id="modeAvoid">Obstacle avoidance</button><button data-cmd="f" id="modeFollow">Line following</button></div>
+        <div class="keys">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>Space</kbd> stop · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> look, <kbd>Shift</kbd>+<kbd>↑</kbd> centre</div>
+        <div class="sub" id="driveMsg"></div>
+      </div>
+    </div>
   </section>
 
   <div id="panels" class="grid stale">
@@ -188,6 +224,15 @@ function render(snap) {
     setConn("--ok", `Live on ${snap.port}`);
   }
   $("panels").classList.toggle("stale", !st || snap.statusAge > 2);
+  const live = !!st && snap.statusAge <= 2;
+  $("drive").setAttribute("aria-disabled", live ? "false" : "true");
+  if (!live) releaseHold(false);
+  if (st) {
+    $("speedVal").textContent = st.speed;
+    $("trimVal").textContent = st.trim == null ? "–" : (st.trim > 0 ? `${st.trim}° L` : st.trim < 0 ? `${-st.trim}° R` : "0°");
+    $("modeAvoid").classList.toggle("on", st.mode === "avoid");
+    $("modeFollow").classList.toggle("on", st.mode === "follow");
+  }
   $("age").textContent = st ? `${snap.statusAge.toFixed(1)} s ago` : "–";
   if (!st) return;
 
@@ -301,6 +346,89 @@ async function setupCamera() {
   start();
 }
 setupCamera();
+
+// ---- Driving ----
+// Drive commands last 0.4 s on the car, so a held control repeats every
+// 0.2 s and the car stops by itself if the page, browser or Wi-Fi goes away.
+const REPEAT_MS = 200;
+let held = null, holdTimer = null, holdEl = null;
+
+async function sendCmd(cmd) {
+  try {
+    const r = await fetch("/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cmd }),
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      $("driveMsg").textContent = `Not sent: ${e.error || r.status}`;
+    } else {
+      $("driveMsg").textContent = "";
+    }
+  } catch (e) {
+    $("driveMsg").textContent = "Not sent: dashboard server not reachable";
+  }
+}
+
+function startHold(cmd, el) {
+  if (held === cmd) return;
+  releaseHold(false);
+  held = cmd; holdEl = el;
+  if (el) el.classList.add("held");
+  sendCmd(cmd);
+  holdTimer = setInterval(() => sendCmd(cmd), REPEAT_MS);
+}
+
+function releaseHold(sendStop = true) {
+  if (!held) return;
+  clearInterval(holdTimer);
+  if (holdEl) holdEl.classList.remove("held");
+  held = null; holdEl = null;
+  if (sendStop) sendCmd("x");
+}
+
+// On-screen buttons: press and hold to drive, release to stop.
+document.querySelectorAll("#drive [data-hold]").forEach((b) => {
+  b.addEventListener("pointerdown", (e) => { e.preventDefault(); b.setPointerCapture(e.pointerId); startHold(b.dataset.hold, b); });
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(ev, () => releaseHold());
+  b.addEventListener("contextmenu", (e) => e.preventDefault());  // long-press on touch screens
+});
+document.querySelectorAll("#drive [data-cmd]").forEach((b) => {
+  b.addEventListener("click", () => { if (b.dataset.cmd === "x") releaseHold(false); sendCmd(b.dataset.cmd); });
+});
+
+// Keyboard.
+const HOLD_KEYS = { w: "w", arrowup: "w", s: "s", arrowdown: "s", a: "a", arrowleft: "a", d: "d", arrowright: "d" };
+const KEY_CMDS = { "+": "+", "=": "+", "-": "-", "_": "-", "[": "[", "]": "]", "\\": "\\" };
+const keyBtn = (cmd) => document.querySelector(`#drive [data-hold="${cmd}"]`);
+// Shift + arrows move the camera head instead of driving. Holding repeats,
+// throttled so the head turns at a steady pace (15 degrees per step).
+const LOOK_KEYS = { arrowleft: "[", arrowright: "]", arrowup: "\\" };
+const LOOK_REPEAT_MS = 250;
+let lastLook = 0;
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || $("drive").getAttribute("aria-disabled") === "true") return;
+  const k = e.key.toLowerCase();
+  if (k === " " || k === "escape") { e.preventDefault(); releaseHold(false); sendCmd("x"); return; }
+  if (e.shiftKey && LOOK_KEYS[k]) {
+    e.preventDefault();
+    const now = Date.now();
+    if (k === "arrowup" ? !e.repeat : (!e.repeat || now - lastLook >= LOOK_REPEAT_MS)) {
+      lastLook = now;
+      sendCmd(LOOK_KEYS[k]);
+    }
+    return;
+  }
+  if (HOLD_KEYS[k]) { e.preventDefault(); if (!e.repeat) startHold(HOLD_KEYS[k], keyBtn(HOLD_KEYS[k])); return; }
+  if (KEY_CMDS[e.key] && !e.repeat) { e.preventDefault(); sendCmd(KEY_CMDS[e.key]); }
+});
+document.addEventListener("keyup", (e) => {
+  if (HOLD_KEYS[e.key.toLowerCase()] === held) releaseHold();
+});
+// Stop when the page loses focus or is hidden (the key-up would never come).
+window.addEventListener("blur", () => releaseHold());
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseHold(); });
 </script>
 </body>
 </html>

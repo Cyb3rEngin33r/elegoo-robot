@@ -13,6 +13,13 @@ int lastDistanceCm();
 struct Line { int left, middle, right; };
 Line line();
 
-// Point the ultrasonic pan servo (0..180, 90 = straight ahead).
+// Point the ultrasonic pan servo (0..180, 90 = straight ahead). The centre
+// trim is added, so 90 means straight ahead even if the servo horn sits a
+// little off.
 void look(int angle);
+
+// Centre trim in degrees (positive turns the head left). Saved in EEPROM and
+// restored at power-up; limited to +/-20.
+void setTrim(int degrees);
+int trim();
 }  // namespace Sensors

@@ -3,7 +3,8 @@
 // Joins your home Wi-Fi as "elegoo-car" (elegoo-car.local).
 //
 // TCP 2323  bridge: everything the UNO prints goes to the client, everything
-//           the client sends goes to the UNO. One client at a time; a new
+//           the client sends goes to the UNO, paced 10 ms per character so
+//           the car's burst filter sees each command on its own. One client at a time; a new
 //           connection replaces the old one. Needs the link pins (below).
 // TCP 2324  tools, one command per line:
 //             status            pins, Wi-Fi, byte counters
@@ -98,6 +99,11 @@ void reportWifi() {
   }
 }
 uint32_t bytesFromUno = 0, bytesToUno = 0;
+// The car only acts on isolated characters (5 ms quiet before and after), and
+// Wi-Fi can deliver separately sent commands bunched together, so characters
+// go to the car one at a time, at least this far apart.
+constexpr unsigned long TO_CAR_GAP_MS = 10;
+unsigned long lastToUno = 0;
 
 // ---- output to both the USB log and the tools client ----
 void say(const String& s) {
@@ -362,12 +368,13 @@ void pumpBridge() {
     bytesFromUno += n;
     if (bridgeClient && bridgeClient.connected()) bridgeClient.write(buf, n);
   }
-  if (bridgeClient && bridgeClient.connected()) {
-    n = bridgeClient.available();
-    if (n) {
-      n = bridgeClient.read(buf, min(n, sizeof(buf)));
-      bytesToUno += n;
-      Serial1.write(buf, n);
+  if (bridgeClient && bridgeClient.connected() && bridgeClient.available() &&
+      millis() - lastToUno >= TO_CAR_GAP_MS) {
+    int c = bridgeClient.read();
+    if (c >= 0) {
+      Serial1.write((uint8_t)c);
+      bytesToUno++;
+      lastToUno = millis();
     }
   }
 }

@@ -45,7 +45,7 @@ On V4.0 kits, set the shield's upload switch to the upload position while flashi
 (it disconnects the camera module from RX/TX), then switch it back to "Cam".
 
 Console commands: `w s a d` drive, `x` stop, `+ -` speed, `p` ping,
-`l` line sensors, `[ ] \` servo, `o` obstacle avoidance on/off, `f` line following on/off, `j`/`J` status reports on/off, `h` help.
+`l` line sensors, `[ ] \` servo, `< >` servo centre trim (1° left/right, saved in EEPROM), `o` obstacle avoidance on/off, `f` line following on/off, `j`/`J` status reports on/off, `h` help.
 Only isolated characters count as commands: a character is acted on once the
 line has been quiet for 5 ms before and after it, so bursts of text (like the
 camera module's `{Heartbeat}`) can't be mistaken for commands.
@@ -107,7 +107,7 @@ codes for another remote can be added to `src/remote.cpp`.
 
 A live web page showing the car's mode, what it's doing, distance ahead, line
 sensors, motor speeds, battery voltage and a log of its decisions. Over Wi-Fi it
-also shows live video from the car's camera.
+also shows live video from the car's camera, and it can drive the car.
 
 ```bash
 car-dashboard                       # over USB, auto-detects the car's port
@@ -131,6 +131,24 @@ Then open http://127.0.0.1:8000.
 - The battery voltage is approximate (Elegoo's divider formula). It reads about
   7.2 V on a charged pack, which is plausible, but it isn't checked with a meter.
 
+**Driving from the dashboard** (the Drive panel, under the camera):
+
+| Control | Keys | Action |
+|---|---|---|
+| ▲ ◀ ▶ ▼ (hold) | `W A S D` or arrows | drive while held, stop on release |
+| STOP | `Space` / `Esc` | stop everything |
+| Speed − / + | `-` / `+` | slower / faster |
+| Look ◀ / Ahead / ▶ | `Shift`+`←` `→`, `Shift`+`↑` | turn / centre the camera head |
+| Trim ◀ 1° / 1° ▶ | | nudge the head's centre (saved on the car) |
+| Obstacle avoidance / Line following | | start / stop a mode (green while running) |
+
+Drive commands last 0.4 s on the car, and the page repeats them every 0.2 s
+while held, so the car stops by itself if the page, browser or Wi-Fi goes
+away. The page also sends a stop on release, on switching tabs and when the
+window loses focus. The panel is disabled when no live status is coming in.
+Only the dashboard's own page can send commands (JSON from its own origin),
+and only drive, mode, speed and head commands are accepted.
+
 The car sends one JSON line every 250 ms after `j` (see `include/status.h`);
 the dashboard sends `j` itself and asks again if the reports stop.
 
@@ -139,6 +157,8 @@ the dashboard sends `j` itself and asks again if the reports stop.
 Newer V4.0 kits have an **ESP32-S3** camera module (older ones have an ESP32).
 `esp32/` replaces Elegoo's firmware with a Wi-Fi serial bridge: the module joins
 your home Wi-Fi as `elegoo-car`, passes the car's serial link to TCP port 2323
+(characters to the car are paced 10 ms apart, so the car's burst filter sees
+each command on its own)
 so the dashboard (or anything else) can talk to the car without a cable, and
 streams video from the camera. Elegoo's phone app no longer works.
 
@@ -196,5 +216,4 @@ git, SHA-256 alongside). To restore it, put the module in download mode and run:
 
 ## Ideas for next steps
 
-- Driving the car from the dashboard (it can already send commands over the bridge)
 - Bluetooth/app control over the serial port
