@@ -7,17 +7,21 @@
 //   p        ping the ultrasonic sensor
 //   l        read the line tracker
 //   [ / ] /  pan servo left / right / center ( '\' )
-//   o        obstacle avoidance on/off (the shield's push button does the same)
+//   o        obstacle avoidance on/off
+//   f        line following on/off
 //   h        help
 //
-// The car never drives on power-up. Obstacle avoidance starts only when you
-// press the button (or send o), and waits 1 s before moving.
-// Any drive command or x also stops obstacle avoidance.
+// Shield push button (V4): short press = obstacle avoidance, hold 1 s = line
+// following; any press while a mode is running stops it.
+//
+// The car never drives on power-up. Both modes wait 1 s before moving.
+// Any drive command or x also stops them.
 //
 // Put the car on a stand or hold it with the wheels off the table for the first test.
 
 #include <Arduino.h>
 #include "avoid.h"
+#include "follow.h"
 #include "led.h"
 #include "motors.h"
 #include "pins.h"
@@ -30,34 +34,50 @@ unsigned long driveUntil = 0;
 
 void help() {
   Serial.println(F("Commands: w s a d (drive) x (stop) +/- (speed) p (ping) "
-                   "l (line) [ ] \\ (servo) o (avoid on/off) h (help)"));
+                   "l (line) [ ] \\ (servo) o (avoid) f (follow line) h (help)"));
+}
+
+bool modeActive() { return Avoid::active() || Follow::active(); }
+
+void stopAll() {
+  Avoid::stop();
+  Follow::stop();
+  Motors::stop();
+  driveUntil = 0;
 }
 
 void driveFor(int left, int right, unsigned long ms = 400) {
   Avoid::stop();
+  Follow::stop();
   Motors::drive(left, right);
   driveUntil = millis() + ms;
 }
 
-void toggleAvoid() {
-  if (Avoid::active()) {
-    Avoid::stop();
-  } else {
-    Motors::stop();
-    driveUntil = 0;
-    panAngle = 90;
-    Avoid::start();
+// Start a mode, or stop everything if any mode is already running.
+void toggleMode(bool lineFollowing) {
+  if (modeActive()) {
+    stopAll();
+    return;
   }
+  stopAll();
+  panAngle = 90;
+  if (lineFollowing) Follow::start();
+  else Avoid::start();
 }
 
-// Push button on the shield: active LOW, debounced, fires once per press.
+// Push button on the shield: active LOW, debounced.
+// Short press (released before 1 s) or long press (held 1 s; fires while held).
 #if KIT_VERSION == 4  // only the V4 shield has the push button
+enum class Press : uint8_t { None, Short, Long };
 constexpr unsigned long DEBOUNCE_MS = 30;
+constexpr unsigned long LONG_PRESS_MS = 1000;
 bool buttonDown = false;
 bool lastReading = false;
+bool longFired = false;
 unsigned long readingSince = 0;
+unsigned long pressedAt = 0;
 
-bool buttonPressed() {
+Press buttonEvent() {
   bool reading = digitalRead(PIN_BUTTON) == LOW;
   if (reading != lastReading) {
     lastReading = reading;
@@ -65,9 +85,18 @@ bool buttonPressed() {
   }
   if (millis() - readingSince >= DEBOUNCE_MS && reading != buttonDown) {
     buttonDown = reading;
-    return buttonDown;  // true only on the press, not the release
+    if (buttonDown) {
+      pressedAt = millis();
+      longFired = false;
+    } else if (!longFired) {
+      return Press::Short;
+    }
   }
-  return false;
+  if (buttonDown && !longFired && millis() - pressedAt >= LONG_PRESS_MS) {
+    longFired = true;
+    return Press::Long;
+  }
+  return Press::None;
 }
 #endif
 
@@ -77,8 +106,9 @@ void handleCommand(char c) {
     case 's': driveFor(-speed, -speed); break;
     case 'a': driveFor(-speed, speed); break;
     case 'd': driveFor(speed, -speed); break;
-    case 'x': Avoid::stop(); Motors::stop(); driveUntil = 0; break;
-    case 'o': toggleAvoid(); break;
+    case 'x': stopAll(); break;
+    case 'o': toggleMode(false); break;
+    case 'f': toggleMode(true); break;
     case '+': speed = min(speed + 25, 255); Serial.print(F("speed ")); Serial.println(speed); break;
     case '-': speed = max(speed - 25, 50);  Serial.print(F("speed ")); Serial.println(speed); break;
     case 'p': {
@@ -111,9 +141,11 @@ void setup() {
   Sensors::begin();
   Led::begin();
   Avoid::begin();  // sets the LED to blue (idle)
+  Follow::begin();
 #if KIT_VERSION == 4  // only the V4 shield has the push button
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   buttonDown = lastReading = digitalRead(PIN_BUTTON) == LOW;
+  longFired = buttonDown;  // a button held at power-up does nothing
 #endif
   Serial.print(F("Elegoo robot ready (kit V"));
   Serial.print(KIT_VERSION);
@@ -128,10 +160,15 @@ void loop() {
   }
 
 #if KIT_VERSION == 4  // only the V4 shield has the push button
-  if (buttonPressed()) toggleAvoid();
+  switch (buttonEvent()) {
+    case Press::Short: toggleMode(false); break;
+    case Press::Long:  toggleMode(true); break;
+    default: break;
+  }
 #endif
 
   Avoid::update();
+  Follow::update();
 
   if (Serial.available()) handleCommand(Serial.read());
 }

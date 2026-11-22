@@ -12,6 +12,7 @@ include/pins.h      pin maps for both kit versions
 src/motors.cpp      differential drive, speeds -255..255
 src/sensors.cpp     ultrasonic distance, line tracker, pan servo
 src/avoid.cpp       obstacle avoidance (tuning constants at the top)
+src/follow.cpp      line following (thresholds and speeds at the top)
 src/led.cpp         status LED (V4 shield RGB LED)
 src/main.cpp        serial test console
 ```
@@ -38,12 +39,15 @@ On V4.0 kits, set the shield's upload switch to the upload position while flashi
 (it disconnects the Bluetooth module from RX/TX), then switch it back.
 
 Console commands: `w s a d` drive, `x` stop, `+ -` speed, `p` ping,
-`l` line sensors, `[ ] \` servo, `o` obstacle avoidance on/off, `h` help.
+`l` line sensors, `[ ] \` servo, `o` obstacle avoidance on/off, `f` line following on/off, `h` help.
+
+Shield push button (V4): **short press** starts obstacle avoidance, **hold 1 s**
+starts line following, and any press while a mode is running stops it.
 
 ## Obstacle avoidance
 
-The car never drives on power-up. Press the shield's push button (or send `o`)
-to start; it waits 1 s, then drives forward, slows down under 50 cm, and under
+The car never drives on power-up. Short-press the shield's push button (or send
+`o`) to start; it waits 1 s, then drives forward, slows down under 50 cm, and under
 25 cm stops, looks left and right, and turns toward the clearer side. Press the
 button again (or send `o`, `x` or any drive key) to stop. Each decision is
 printed to the serial console, so you can test it on the desk with the wheels up
@@ -61,8 +65,20 @@ On V4 kits the shield's RGB LED shows what it's doing:
 
 If one side spins backwards, flip `INVERT_LEFT` / `INVERT_RIGHT` in `include/motors.h`.
 
+## Line following
+
+Follows a dark tape line (black electrical tape works well) on a light floor.
+Put the car with the tape under its middle, then hold the button for 1 s (or
+send `f`). It drives straight while only the middle sensor sees the line, curves
+gently when a side sensor also sees it, and spins when only a side sensor does.
+If it loses the line it spins toward where it last saw it, and stops after 2 s
+without finding it. It also stops if it's picked up.
+
+The thresholds in `src/follow.cpp` were calibrated on one floor and tape
+(floor reads about 40, tape about 700 to 900, lifted about 1020). On a different
+surface, check the readings with `l` and adjust `LINE_THRESHOLD`.
+
 ## Ideas for next steps
 
-- Line following with the three line sensors
 - IR remote control (IRremote library, pin `PIN_IR_RX`)
 - Bluetooth/app control over the serial port
