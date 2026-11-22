@@ -1,4 +1,5 @@
 #include "avoid.h"
+#include "led.h"
 #include "motors.h"
 #include "sensors.h"
 
@@ -27,9 +28,23 @@ unsigned long lastPing = 0;
 int currentSpeed = 0;
 int leftCm = 0, rightCm = 0;
 
+Led::Color colorFor(State s) {
+  switch (s) {
+    case State::Starting:  return Led::Color::White;
+    case State::Forward:   return Led::Color::Green;
+    case State::LookLeft:
+    case State::LookRight:
+    case State::Turning:   return Led::Color::Yellow;
+    case State::Backing:   return Led::Color::Red;
+    case State::Idle:
+    default:               return Led::Color::Blue;
+  }
+}
+
 void enter(State s) {
   state = s;
   stateSince = millis();
+  Led::set(colorFor(s));
 }
 
 unsigned long timeInState() { return millis() - stateSince; }

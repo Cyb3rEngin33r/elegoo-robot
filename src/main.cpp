@@ -18,6 +18,7 @@
 
 #include <Arduino.h>
 #include "avoid.h"
+#include "led.h"
 #include "motors.h"
 #include "pins.h"
 #include "sensors.h"
@@ -108,7 +109,8 @@ void setup() {
   Serial.begin(115200);
   Motors::begin();
   Sensors::begin();
-  Avoid::begin();
+  Led::begin();
+  Avoid::begin();  // sets the LED to blue (idle)
 #if KIT_VERSION == 4  // only the V4 shield has the push button
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   buttonDown = lastReading = digitalRead(PIN_BUTTON) == LOW;

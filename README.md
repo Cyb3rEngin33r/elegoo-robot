@@ -12,6 +12,7 @@ include/pins.h      pin maps for both kit versions
 src/motors.cpp      differential drive, speeds -255..255
 src/sensors.cpp     ultrasonic distance, line tracker, pan servo
 src/avoid.cpp       obstacle avoidance (tuning constants at the top)
+src/led.cpp         status LED (V4 shield RGB LED)
 src/main.cpp        serial test console
 ```
 
@@ -47,6 +48,16 @@ to start; it waits 1 s, then drives forward, slows down under 50 cm, and under
 button again (or send `o`, `x` or any drive key) to stop. Each decision is
 printed to the serial console, so you can test it on the desk with the wheels up
 and then unplug USB and run it on the floor.
+
+On V4 kits the shield's RGB LED shows what it's doing:
+
+| Colour | Meaning |
+|---|---|
+| Blue | idle, waiting for the button or `o` |
+| White | starting (1 s delay) |
+| Green | driving forward |
+| Yellow | looking around or turning away |
+| Red | boxed in, backing up |
 
 If one side spins backwards, flip `INVERT_LEFT` / `INVERT_RIGHT` in `include/motors.h`.
 

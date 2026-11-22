@@ -26,7 +26,7 @@ constexpr uint8_t PIN_LINE_M = A1;
 constexpr uint8_t PIN_LINE_R = A0;
 
 constexpr uint8_t PIN_IR_RX   = 9;
-constexpr uint8_t PIN_RGB_LED = 4;      // single WS2812 (needs FastLED)
+constexpr uint8_t PIN_RGB_LED = 4;      // single WS2812 status LED (see led.cpp)
 constexpr uint8_t PIN_BUTTON  = 2;
 constexpr uint8_t PIN_VOLTAGE = A3;
 
