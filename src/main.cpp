@@ -18,8 +18,10 @@
 // IR remote: hold an arrow to drive (stops ~0.25 s after release), OK = stop,
 // 1 = obstacle avoidance, 2 = line following, * / # = slower / faster.
 //
-// Anything between { and } is ignored, so messages from the camera module
-// (e.g. {Heartbeat}) can't be mistaken for drive commands.
+// Only isolated characters are commands: a character is acted on once the
+// line has been quiet for 5 ms before and after it. Bursts of text, such as
+// the camera module's startup messages or {Heartbeat}, are ignored as a whole,
+// so their letters can't be mistaken for drive commands.
 //
 // The car never drives on power-up. Both modes wait 1 s before moving.
 // Any drive command or x also stops them.
@@ -40,7 +42,10 @@ namespace {
 int speed = 150;
 int panAngle = 90;
 unsigned long driveUntil = 0;
-bool insideBraces = false;  // skipping a {...} message from the camera module
+// Serial command filter (see the comment at the top).
+constexpr unsigned long QUIET_US = 5000;
+char pendingCommand = 0;
+unsigned long lastByteAt = 0;
 
 void help() {
   Serial.println(F("Commands: w s a d (drive) x (stop) +/- (speed) p (ping) "
@@ -221,10 +226,15 @@ void loop() {
   else if (driveUntil)       Status::update(F("manual"), F("driving"), speed);
   else                       Status::update(F("idle"), F("idle"), speed);
 
-  if (Serial.available()) {
+  while (Serial.available()) {
     char c = Serial.read();
-    if (c == '{') insideBraces = true;
-    else if (c == '}') insideBraces = false;
-    else if (!insideBraces) handleCommand(c);
+    unsigned long now = micros();
+    // Part of a burst: drop it, and drop the character that started it.
+    pendingCommand = (now - lastByteAt < QUIET_US) ? 0 : c;
+    lastByteAt = now;
+  }
+  if (pendingCommand && micros() - lastByteAt >= QUIET_US) {
+    handleCommand(pendingCommand);
+    pendingCommand = 0;
   }
 }

@@ -166,7 +166,7 @@ function render(snap) {
   const st = snap.status;
   $("port").textContent = snap.port || "–";
   if (!snap.connected) {
-    setConn("--bad", "Car not connected. Plug in USB.");
+    setConn("--bad", "Car not connected. Check the USB cable, or that the car is on and on Wi-Fi.");
   } else if (!st) {
     setConn("--warn", `Connected on ${snap.port}, waiting for reports…`);
   } else if (snap.statusAge > 2) {
@@ -222,7 +222,7 @@ function addLog(entries) {
     t.textContent = new Date(e.time * 1000).toLocaleTimeString();
     const msg = document.createElement("span");
     msg.textContent = e.text;  // text from the car: never parsed as HTML
-    if (e.text.startsWith("[dashboard]")) msg.className = "meta";
+    if (e.text.startsWith("[dashboard]") || e.text.startsWith("[esp32]")) msg.className = "meta";
     li.append(t, msg);
     log.prepend(li);
   }

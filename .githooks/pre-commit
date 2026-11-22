@@ -1,0 +1,22 @@
+#!/bin/sh
+# Refuse commits that would include Wi-Fi credentials.
+#
+# - esp32/include/secrets.h (or any secrets.h) holds the Wi-Fi password
+# - .pio/ build folders hold compiled firmware with the password inside
+# - any other staged file that defines WIFI_PASSWORD (except the .example)
+#
+# Enabled with: git config core.hooksPath .githooks
+
+blocked=$(git diff --cached --name-only --diff-filter=ACMR |
+  grep -E '(^|/)secrets\.h$|(^|/)\.pio/')
+
+leaked=$(git diff --cached --name-only -z --diff-filter=ACMR |
+  xargs -0 -r grep -l -E '^[[:space:]]*#define[[:space:]]+WIFI_PASSWORD' -- 2>/dev/null |
+  grep -v -E 'secrets\.h\.example$')
+
+if [ -n "$blocked$leaked" ]; then
+  echo "pre-commit: refusing to commit Wi-Fi credentials or firmware builds:" >&2
+  printf '%s\n%s\n' "$blocked" "$leaked" | sed '/^$/d' | sort -u | sed 's/^/  /' >&2
+  echo "Unstage them with: git restore --staged <file>" >&2
+  exit 1
+fi

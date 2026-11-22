@@ -5,11 +5,14 @@ that shows them live. Run with:
 
     car-dashboard                  # auto-detects the car's USB serial port
     car-dashboard --port /dev/ttyUSB1
+    car-dashboard --wifi           # over Wi-Fi via the camera module (elegoo-car.local)
+    car-dashboard --wifi 192.168.1.50
 
 then open http://127.0.0.1:8000 in a browser.
 
-Opening the serial port restarts the car's board (that's how Arduino USB
-works), so any running mode stops when the dashboard connects.
+Opening the USB serial port restarts the car's board (that's how Arduino USB
+works), so any running mode stops when the dashboard connects. Connecting over
+Wi-Fi doesn't restart it.
 """
 
 from __future__ import annotations
@@ -35,6 +38,8 @@ CH340_VID = 0x1A86  # USB-serial chip on the Elegoo UNO board
 BOOT_WAIT_S = 2.5  # the board restarts when the port opens
 STATUS_TIMEOUT_S = 3.0  # no report for this long: ask for reports again
 LOG_LINES = 200
+WIFI_HOST = "elegoo-car.local"
+WIFI_PORT = 2323
 
 
 def find_port() -> str | None:
@@ -96,10 +101,15 @@ class CarLink:
             time.sleep(2)
 
     def _session(self, port: str) -> None:
-        with serial.Serial(port, BAUD, timeout=0.2) as ser:
+        # `port` is a device (/dev/ttyUSB1) or a pyserial URL (socket://host:port).
+        over_wifi = port.startswith("socket://")
+        with serial.serial_for_url(port, BAUD, timeout=0.2) as ser:
             self._set_connected(True, port)
-            self._add_log(f"[dashboard] connected to {port}, waiting for the car to start")
-            time.sleep(BOOT_WAIT_S)
+            if over_wifi:
+                self._add_log(f"[dashboard] connected to {port}")
+            else:
+                self._add_log(f"[dashboard] connected to {port}, waiting for the car to start")
+                time.sleep(BOOT_WAIT_S)
             ser.write(b"j")
             asked_at = time.time()
             buf = b""
@@ -180,12 +190,18 @@ def create_app(link: CarLink) -> Starlette:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Live status dashboard for the robot car")
-    parser.add_argument("--port", help="serial port (default: auto-detect)")
+    where = parser.add_mutually_exclusive_group()
+    where.add_argument("--port", help="USB serial port (default: auto-detect)")
+    where.add_argument(
+        "--wifi", nargs="?", const=WIFI_HOST, metavar="HOST",
+        help=f"connect over Wi-Fi via the camera module (default host: {WIFI_HOST})",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="web server address (default: 127.0.0.1)")
     parser.add_argument("--http-port", type=int, default=8000, help="web server port (default: 8000)")
     args = parser.parse_args()
 
-    link = CarLink(args.port)
+    port = f"socket://{args.wifi}:{WIFI_PORT}" if args.wifi else args.port
+    link = CarLink(port)
     link.start()
     print(f"Dashboard: http://{args.host}:{args.http_port}")
     uvicorn.run(create_app(link), host=args.host, port=args.http_port, log_level="warning")

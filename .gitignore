@@ -14,3 +14,7 @@ wheels/
 .pio/
 .vscode/
 *.swp
+
+# Wi-Fi credentials for the camera module firmware
+esp32/include/secrets.h
+esp32/backup/
