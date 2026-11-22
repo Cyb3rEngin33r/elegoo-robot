@@ -14,6 +14,9 @@
 // Shield push button (V4): short press = obstacle avoidance, hold 1 s = line
 // following; any press while a mode is running stops it.
 //
+// IR remote: hold an arrow to drive (stops ~0.25 s after release), OK = stop,
+// 1 = obstacle avoidance, 2 = line following, * / # = slower / faster.
+//
 // The car never drives on power-up. Both modes wait 1 s before moving.
 // Any drive command or x also stops them.
 //
@@ -25,6 +28,7 @@
 #include "led.h"
 #include "motors.h"
 #include "pins.h"
+#include "remote.h"
 #include "sensors.h"
 
 namespace {
@@ -100,6 +104,37 @@ Press buttonEvent() {
 }
 #endif
 
+void handleCommand(char c);
+
+// IR remote. Drive buttons repeat while held, so each repeat extends the drive.
+constexpr unsigned long REMOTE_HOLD_MS = 250;
+
+void handleRemote() {
+  bool repeat;
+  Remote::Button b = Remote::read(repeat);
+  if (b == Remote::Button::None || b == Remote::Button::Unknown) return;
+  if (!repeat) {
+    Serial.print(F("IR: "));
+    Serial.println(Remote::name(b));
+  }
+  switch (b) {
+    case Remote::Button::Up:    driveFor(speed, speed, REMOTE_HOLD_MS); break;
+    case Remote::Button::Down:  driveFor(-speed, -speed, REMOTE_HOLD_MS); break;
+    case Remote::Button::Left:  driveFor(-speed, speed, REMOTE_HOLD_MS); break;
+    case Remote::Button::Right: driveFor(speed, -speed, REMOTE_HOLD_MS); break;
+    default:
+      if (repeat) return;  // the rest act once per press
+      switch (b) {
+        case Remote::Button::Ok:   stopAll(); break;
+        case Remote::Button::Num1: toggleMode(false); break;
+        case Remote::Button::Num2: toggleMode(true); break;
+        case Remote::Button::Star: handleCommand('-'); break;
+        case Remote::Button::Hash: handleCommand('+'); break;
+        default: break;  // other buttons unused for now
+      }
+  }
+}
+
 void handleCommand(char c) {
   switch (c) {
     case 'w': driveFor(speed, speed); break;
@@ -142,6 +177,7 @@ void setup() {
   Led::begin();
   Avoid::begin();  // sets the LED to blue (idle)
   Follow::begin();
+  Remote::begin();
 #if KIT_VERSION == 4  // only the V4 shield has the push button
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   buttonDown = lastReading = digitalRead(PIN_BUTTON) == LOW;
@@ -169,6 +205,7 @@ void loop() {
 
   Avoid::update();
   Follow::update();
+  handleRemote();
 
   if (Serial.available()) handleCommand(Serial.read());
 }

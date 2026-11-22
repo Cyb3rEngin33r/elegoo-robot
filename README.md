@@ -14,6 +14,7 @@ src/sensors.cpp     ultrasonic distance, line tracker, pan servo
 src/avoid.cpp       obstacle avoidance (tuning constants at the top)
 src/follow.cpp      line following (thresholds and speeds at the top)
 src/led.cpp         status LED (V4 shield RGB LED)
+src/remote.cpp      IR remote (button codes at the top)
 src/main.cpp        serial test console
 ```
 
@@ -78,7 +79,22 @@ The thresholds in `src/follow.cpp` were calibrated on one floor and tape
 (floor reads about 40, tape about 700 to 900, lifted about 1020). On a different
 surface, check the readings with `l` and adjust `LINE_THRESHOLD`.
 
+## IR remote
+
+The kit's IR remote works at any time:
+
+| Button | Action |
+|---|---|
+| ▲ ▼ ◀ ▶ (hold) | drive forward / back / spin left / spin right; stops ~0.25 s after release |
+| OK | stop everything |
+| 1 | obstacle avoidance on/off |
+| 2 | line following on/off |
+| * / # | slower / faster |
+
+Like the shield button, 1 or 2 stops whichever mode is running. Buttons that
+aren't recognised are printed on the serial console (`IR: unknown ...`), so
+codes for another remote can be added to `src/remote.cpp`.
+
 ## Ideas for next steps
 
-- IR remote control (IRremote library, pin `PIN_IR_RX`)
 - Bluetooth/app control over the serial port
