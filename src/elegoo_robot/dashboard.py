@@ -8,6 +8,9 @@ that shows them live. Run with:
     car-dashboard --wifi           # over Wi-Fi via the camera module (elegoo-car.local)
     car-dashboard --wifi 192.168.1.50
 
+Over Wi-Fi the page also shows the camera's live video, which the browser
+loads straight from the car (http://<car>:81/stream).
+
 then open http://127.0.0.1:8000 in a browser.
 
 Opening the USB serial port restarts the car's board (that's how Arduino USB
@@ -30,7 +33,7 @@ import serial.tools.list_ports
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, StreamingResponse
+from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 BAUD = 115200
@@ -40,6 +43,7 @@ STATUS_TIMEOUT_S = 3.0  # no report for this long: ask for reports again
 LOG_LINES = 200
 WIFI_HOST = "elegoo-car.local"
 WIFI_PORT = 2323
+CAMERA_STREAM = "http://{host}:81/stream"
 
 
 def find_port() -> str | None:
@@ -156,7 +160,7 @@ class CarLink:
             }
 
 
-def create_app(link: CarLink) -> Starlette:
+def create_app(link: CarLink, camera_url: str | None = None) -> Starlette:
     page = resources.files("elegoo_robot").joinpath("static/index.html").read_text()
 
     async def index(request: Request) -> HTMLResponse:
@@ -185,7 +189,10 @@ def create_app(link: CarLink) -> Starlette:
             headers={"Cache-Control": "no-cache"},
         )
 
-    return Starlette(routes=[Route("/", index), Route("/events", events)])
+    async def config(request: Request) -> JSONResponse:
+        return JSONResponse({"camera": camera_url})
+
+    return Starlette(routes=[Route("/", index), Route("/events", events), Route("/config", config)])
 
 
 def main() -> None:
@@ -196,15 +203,22 @@ def main() -> None:
         "--wifi", nargs="?", const=WIFI_HOST, metavar="HOST",
         help=f"connect over Wi-Fi via the camera module (default host: {WIFI_HOST})",
     )
+    parser.add_argument(
+        "--camera", metavar="URL",
+        help="camera stream URL (default with --wifi: http://HOST:81/stream; 'none' to hide)",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="web server address (default: 127.0.0.1)")
     parser.add_argument("--http-port", type=int, default=8000, help="web server port (default: 8000)")
     args = parser.parse_args()
 
     port = f"socket://{args.wifi}:{WIFI_PORT}" if args.wifi else args.port
+    camera_url = args.camera or (CAMERA_STREAM.format(host=args.wifi) if args.wifi else None)
+    if camera_url == "none":
+        camera_url = None
     link = CarLink(port)
     link.start()
     print(f"Dashboard: http://{args.host}:{args.http_port}")
-    uvicorn.run(create_app(link), host=args.host, port=args.http_port, log_level="warning")
+    uvicorn.run(create_app(link, camera_url), host=args.host, port=args.http_port, log_level="warning")
 
 
 if __name__ == "__main__":

@@ -61,6 +61,13 @@
   .log .meta { color: var(--muted); }
   .empty { color: var(--muted); font-size: 13px; }
   .stale { opacity: .45; }
+  .camera { grid-column: 1 / -1; }
+  .camera .frame { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 4 / 3; max-height: 70vh; margin: 0 auto; }
+  .camera img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .camera .msg { position: absolute; inset: 0; display: grid; place-items: center; color: #c9ced8; font-size: 14px; text-align: center; padding: 16px; }
+  .camera .msg[hidden] { display: none; }  /* display: grid above would override [hidden] */
+  .camera .bar-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .camera button { font: inherit; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
 </style>
 </head>
 <body>
@@ -69,6 +76,12 @@
     <h1>Robot Car Status</h1>
     <span class="pill"><span class="dot" id="connDot"></span><span id="connText">Connecting to dashboard…</span></span>
   </header>
+
+  <section class="card camera" id="cameraCard" hidden>
+    <h2>Camera</h2>
+    <div class="frame"><img id="cam" alt="Live video from the car"><div class="msg" id="camMsg">Connecting to the camera…</div></div>
+    <div class="bar-row"><span id="camInfo"></span><button id="camToggle" type="button">Pause video</button></div>
+  </section>
 
   <div id="panels" class="grid stale">
     <section class="card">
@@ -242,6 +255,52 @@ function connect() {
   };
 }
 connect();
+
+// Camera: the browser loads the MJPEG stream straight from the car. The car
+// serves one viewer at a time, so pausing frees it for another tab or device.
+async function setupCamera() {
+  let url = null;
+  try { url = (await (await fetch("/config")).json()).camera; } catch (e) { /* no camera */ }
+  if (!url) return;
+  const card = $("cameraCard"), img = $("cam"), msg = $("camMsg"), btn = $("camToggle");
+  card.hidden = false;
+  card.style.marginBottom = "12px";
+  $("camInfo").textContent = url;
+  let playing = true, retry = null, settle = null;
+  const start = () => {
+    clearTimeout(retry);
+    clearTimeout(settle);
+    msg.textContent = "Connecting to the camera…";
+    msg.hidden = false;
+    img.src = url + (url.includes("?") ? "&" : "?") + "t=" + Date.now();  // fresh connection
+    // Browsers don't reliably signal the first frame of an MJPEG stream, but
+    // they do signal failure (onerror). No error after 3 s means it's playing.
+    settle = setTimeout(() => { msg.hidden = true; }, 3000);
+  };
+  const stop = (text) => {
+    clearTimeout(retry);
+    clearTimeout(settle);
+    img.removeAttribute("src");
+    msg.textContent = text;
+    msg.hidden = false;
+  };
+  img.onload = () => { msg.hidden = true; };
+  // Not every browser fires load for a multipart stream, so also watch for
+  // the first decoded frame.
+  setInterval(() => { if (playing && img.naturalWidth > 0) msg.hidden = true; }, 500);
+  img.onerror = () => {
+    if (!playing) return;
+    stop("Camera not reachable. Is the car on? (Only one viewer at a time.) Retrying…");
+    retry = setTimeout(start, 3000);
+  };
+  btn.onclick = () => {
+    playing = !playing;
+    btn.textContent = playing ? "Pause video" : "Resume video";
+    playing ? start() : stop("Video paused");
+  };
+  start();
+}
+setupCamera();
 </script>
 </body>
 </html>

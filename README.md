@@ -18,7 +18,7 @@ src/remote.cpp      IR remote (button codes at the top)
 src/status.cpp      JSON status reports for the dashboard
 src/elegoo_robot/   Python status dashboard (car-dashboard)
 src/main.cpp        serial test console
-esp32/              camera module (ESP32-S3) firmware: Wi-Fi serial bridge
+esp32/              camera module (ESP32-S3) firmware: Wi-Fi serial bridge + video
 .githooks/          pre-commit hook that blocks Wi-Fi credentials
 ```
 
@@ -106,7 +106,8 @@ codes for another remote can be added to `src/remote.cpp`.
 ## Status dashboard
 
 A live web page showing the car's mode, what it's doing, distance ahead, line
-sensors, motor speeds, battery voltage and a log of its decisions.
+sensors, motor speeds, battery voltage and a log of its decisions. Over Wi-Fi it
+also shows live video from the car's camera.
 
 ```bash
 car-dashboard                       # over USB, auto-detects the car's port
@@ -119,6 +120,10 @@ Then open http://127.0.0.1:8000.
 
 - Over USB, connecting restarts the car's board, so a running mode stops.
   Over Wi-Fi it doesn't.
+- The video comes straight from the car to the browser, and the camera serves
+  one viewer at a time: a second tab shows "Camera not reachable" until the
+  first one pauses or closes. `--camera URL` overrides the stream address,
+  `--camera none` hides it.
 - `elegoo-car.local` doesn't always resolve on a mesh network; the IP address
   always works. Reserve the car's address in the router so it doesn't change.
 - While the dashboard runs it holds the serial port: stop it before `pio run -t upload`.
@@ -132,9 +137,9 @@ the dashboard sends `j` itself and asks again if the reports stop.
 
 Newer V4.0 kits have an **ESP32-S3** camera module (older ones have an ESP32).
 `esp32/` replaces Elegoo's firmware with a Wi-Fi serial bridge: the module joins
-your home Wi-Fi as `elegoo-car` and passes the car's serial link to TCP port
-2323, so the dashboard (or anything else) can talk to the car without a cable.
-The camera isn't used, and Elegoo's phone app no longer works.
+your home Wi-Fi as `elegoo-car`, passes the car's serial link to TCP port 2323
+so the dashboard (or anything else) can talk to the car without a cable, and
+streams video from the camera. Elegoo's phone app no longer works.
 
 **Setup**
 
@@ -164,6 +169,18 @@ goes to the car. These are the defaults. TCP port 2324 has the tools (`status`,
 nc 192.168.68.52 2324
 ```
 
+**Camera.** The sensor is an OV3660, wired like Espressif's ESP32-S3-EYE (the
+pin numbers were read from Elegoo's original firmware; see
+`esp32/src/camera_stream.cpp`). Frames are kept in the chip's 8 MB octal PSRAM.
+
+| URL | |
+|---|---|
+| `http://192.168.68.52:81/stream` | MJPEG live video, 640x480, ~24 fps |
+| `http://192.168.68.52/capture` | one JPEG |
+| `http://192.168.68.52/control?framesize=svga&quality=10` | change size (`qvga` `vga` `svga` `xga` `hd`), JPEG quality (4-63, lower is better), `vflip`, `hmirror` (0/1) |
+
+Settings from `/control` last until the module restarts.
+
 **Elegoo's original firmware** was backed up to `esp32/backup/` (8 MB, not in
 git, SHA-256 alongside). To restore it, put the module in download mode and run:
 
@@ -174,6 +191,5 @@ git, SHA-256 alongside). To restore it, put the module in download mode and run:
 
 ## Ideas for next steps
 
-- Camera streaming from the camera module
 - Driving the car from the dashboard (it can already send commands over the bridge)
 - Bluetooth/app control over the serial port

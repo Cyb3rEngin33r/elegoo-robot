@@ -25,13 +25,17 @@
 // on GPIO3 and GPIO40 goes to the car (the shield's level shifter holds it
 // high). Those are the defaults; `pins` overrides them and saves to flash.
 // GPIO43 is the chip's boot-log pin and is NOT connected to the car.
-// The module's USB port prints the same diagnostics. The camera isn't used.
+// The module's USB port prints the same diagnostics.
+//
+// Camera (see camera_stream.h): MJPEG video at http://elegoo-car:81/stream.
 
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WiFi.h>
+
+#include "camera_stream.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -275,6 +279,7 @@ void cmdStatus() {
       WiFi.localIP().toString() + ", rssi " + String(WiFi.RSSI()) + " dBm");
   say("bytes from car " + String(bytesFromUno) + ", to car " + String(bytesToUno) +
       ", bridge client " + String(bridgeClient && bridgeClient.connected() ? "yes" : "no"));
+  say(CameraStream::statusLine());
 }
 
 void runToolsCommand(String line) {
@@ -320,6 +325,8 @@ void startNetworkServices() {
   ArduinoOTA.onStart([] { stopBridge(); Serial.println("OTA update starting"); });
   ArduinoOTA.onError([](ota_error_t e) { Serial.printf("OTA error %u\n", e); });
   ArduinoOTA.begin();
+
+  CameraStream::startServers();
 
   bridgeServer.begin();
   bridgeServer.setNoDelay(true);
@@ -389,6 +396,7 @@ void setup() {
   rxPin = prefs.getInt("rx", DEFAULT_RX_PIN);
   txPin = prefs.getInt("tx", DEFAULT_TX_PIN);
   startBridge();
+  CameraStream::begin();  // carries on without video if the camera fails
 
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
     lastDisconnectReason = info.wifi_sta_disconnected.reason;
