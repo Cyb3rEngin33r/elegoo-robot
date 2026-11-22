@@ -130,6 +130,16 @@ void begin() { state = State::Idle; }
 
 bool active() { return state != State::Idle; }
 
+const __FlashStringHelper* stateName() {
+  switch (state) {
+    case State::Idle: return F("idle");
+    case State::Starting: return F("starting");
+    case State::Following: return F("following");
+    case State::Searching: return F("searching");
+  }
+  return F("?");
+}
+
 void start() {
   if (active()) return;
   Serial.println(F("follow: ON, starting in 1 s (press button or send f to stop)"));

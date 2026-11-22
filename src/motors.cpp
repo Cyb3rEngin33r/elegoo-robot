@@ -20,6 +20,13 @@ void setSide(uint8_t enPin, uint8_t inA, uint8_t inB, int speed) {
 
 namespace Motors {
 
+namespace {
+int commandedLeft = 0, commandedRight = 0;
+}
+
+int lastLeft() { return commandedLeft; }
+int lastRight() { return commandedRight; }
+
 void begin() {
 #if defined(MOTOR_DRIVER_TB6612)
   const uint8_t pins[] = {PIN_MOTOR_STBY, PIN_MOTOR_PWMA, PIN_MOTOR_AIN1,
@@ -35,6 +42,8 @@ void begin() {
 }
 
 void drive(int left, int right) {
+  commandedLeft = left;
+  commandedRight = right;
   if (INVERT_LEFT) left = -left;
   if (INVERT_RIGHT) right = -right;
 #if defined(MOTOR_DRIVER_TB6612)

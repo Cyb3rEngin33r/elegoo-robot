@@ -206,10 +206,18 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "platformio" },
+    { name = "pyserial" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "platformio", specifier = ">=6.1" }]
+requires-dist = [
+    { name = "platformio", specifier = ">=6.1" },
+    { name = "pyserial", specifier = ">=3.5" },
+    { name = "starlette", specifier = ">=1.10.0" },
+    { name = "uvicorn", specifier = ">=0.54.0" },
+]
 
 [[package]]
 name = "h11"

@@ -15,6 +15,8 @@ src/avoid.cpp       obstacle avoidance (tuning constants at the top)
 src/follow.cpp      line following (thresholds and speeds at the top)
 src/led.cpp         status LED (V4 shield RGB LED)
 src/remote.cpp      IR remote (button codes at the top)
+src/status.cpp      JSON status reports for the dashboard
+src/elegoo_robot/   Python status dashboard (car-dashboard)
 src/main.cpp        serial test console
 ```
 
@@ -40,7 +42,9 @@ On V4.0 kits, set the shield's upload switch to the upload position while flashi
 (it disconnects the Bluetooth module from RX/TX), then switch it back.
 
 Console commands: `w s a d` drive, `x` stop, `+ -` speed, `p` ping,
-`l` line sensors, `[ ] \` servo, `o` obstacle avoidance on/off, `f` line following on/off, `h` help.
+`l` line sensors, `[ ] \` servo, `o` obstacle avoidance on/off, `f` line following on/off, `j`/`J` status reports on/off, `h` help.
+Anything between `{` and `}` is ignored, so messages from the camera module
+(like `{Heartbeat}`) can't be mistaken for commands.
 
 Shield push button (V4): **short press** starts obstacle avoidance, **hold 1 s**
 starts line following, and any press while a mode is running stops it.
@@ -95,6 +99,27 @@ Like the shield button, 1 or 2 stops whichever mode is running. Buttons that
 aren't recognised are printed on the serial console (`IR: unknown ...`), so
 codes for another remote can be added to `src/remote.cpp`.
 
+## Status dashboard
+
+A live web page showing the car's mode, what it's doing, distance ahead, line
+sensors, motor speeds, battery voltage and a log of its decisions.
+
+```bash
+car-dashboard                 # auto-detects the car's USB port
+car-dashboard --port /dev/ttyUSB1
+```
+
+Then open http://127.0.0.1:8000. It works over USB only for now.
+
+- Connecting restarts the car's board, so a running mode stops.
+- While the dashboard runs it holds the serial port: stop it before `pio run -t upload`.
+- The battery voltage is approximate (Elegoo's divider formula, not yet checked
+  with a multimeter).
+
+The car sends one JSON line every 250 ms after `j` (see `include/status.h`);
+the dashboard sends `j` itself and asks again if the reports stop.
+
 ## Ideas for next steps
 
+- Status over Wi-Fi via the camera module (its own network, or reflash it to join home Wi-Fi)
 - Bluetooth/app control over the serial port

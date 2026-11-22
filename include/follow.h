@@ -11,4 +11,5 @@ void update();   // call on every loop()
 void start();    // waits 1 s, then starts following
 void stop();
 bool active();
+const __FlashStringHelper* stateName();  // for status reports
 }  // namespace Follow

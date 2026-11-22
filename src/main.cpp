@@ -9,6 +9,7 @@
 //   [ / ] /  pan servo left / right / center ( '\' )
 //   o        obstacle avoidance on/off
 //   f        line following on/off
+//   j / J    status reports for the dashboard on / off (JSON, 4 per second)
 //   h        help
 //
 // Shield push button (V4): short press = obstacle avoidance, hold 1 s = line
@@ -16,6 +17,9 @@
 //
 // IR remote: hold an arrow to drive (stops ~0.25 s after release), OK = stop,
 // 1 = obstacle avoidance, 2 = line following, * / # = slower / faster.
+//
+// Anything between { and } is ignored, so messages from the camera module
+// (e.g. {Heartbeat}) can't be mistaken for drive commands.
 //
 // The car never drives on power-up. Both modes wait 1 s before moving.
 // Any drive command or x also stops them.
@@ -29,16 +33,18 @@
 #include "motors.h"
 #include "pins.h"
 #include "remote.h"
+#include "status.h"
 #include "sensors.h"
 
 namespace {
 int speed = 150;
 int panAngle = 90;
 unsigned long driveUntil = 0;
+bool insideBraces = false;  // skipping a {...} message from the camera module
 
 void help() {
   Serial.println(F("Commands: w s a d (drive) x (stop) +/- (speed) p (ping) "
-                   "l (line) [ ] \\ (servo) o (avoid) f (follow line) h (help)"));
+                   "l (line) [ ] \\ (servo) o (avoid) f (follow line) j/J (status on/off) h (help)"));
 }
 
 bool modeActive() { return Avoid::active() || Follow::active(); }
@@ -164,6 +170,8 @@ void handleCommand(char c) {
     case '[': panAngle = min(panAngle + 15, 180); Sensors::look(panAngle); break;
     case ']': panAngle = max(panAngle - 15, 0);   Sensors::look(panAngle); break;
     case '\\': panAngle = 90; Sensors::look(panAngle); break;
+    case 'j': Status::setEnabled(true); break;
+    case 'J': Status::setEnabled(false); break;
     case 'h': help(); break;
     default: break;  // ignore newlines etc.
   }
@@ -207,5 +215,16 @@ void loop() {
   Follow::update();
   handleRemote();
 
-  if (Serial.available()) handleCommand(Serial.read());
+  // Status report: which mode is in charge, and what it's doing.
+  if (Avoid::active())       Status::update(F("avoid"), Avoid::stateName(), speed);
+  else if (Follow::active()) Status::update(F("follow"), Follow::stateName(), speed);
+  else if (driveUntil)       Status::update(F("manual"), F("driving"), speed);
+  else                       Status::update(F("idle"), F("idle"), speed);
+
+  if (Serial.available()) {
+    char c = Serial.read();
+    if (c == '{') insideBraces = true;
+    else if (c == '}') insideBraces = false;
+    else if (!insideBraces) handleCommand(c);
+  }
 }

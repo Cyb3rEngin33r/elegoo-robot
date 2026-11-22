@@ -7,7 +7,7 @@
 namespace {
 constexpr uint8_t BRIGHTNESS = 40;  // 0..255; the LED is very bright at full power
 Adafruit_NeoPixel pixel(1, PIN_RGB_LED, NEO_GRB + NEO_KHZ800);
-Led::Color current = Led::Color::Off;
+Led::Color currentColor = Led::Color::Off;
 
 uint32_t rgb(Led::Color c) {
   switch (c) {
@@ -29,17 +29,19 @@ void begin() {
   pixel.setBrightness(BRIGHTNESS);
   pixel.clear();
   pixel.show();
-  current = Color::Off;
+  currentColor = Color::Off;
 }
 
 void set(Color c) {
   // show() briefly pauses interrupts (which can twitch the servo), so only
   // send to the LED when the colour actually changes.
-  if (c == current) return;
-  current = c;
+  if (c == currentColor) return;
+  currentColor = c;
   pixel.setPixelColor(0, rgb(c));
   pixel.show();
 }
+
+Color current() { return currentColor; }
 
 }  // namespace Led
 
@@ -48,6 +50,21 @@ void set(Color c) {
 namespace Led {
 void begin() {}
 void set(Color) {}
+Color current() { return Color::Off; }
 }  // namespace Led
 
 #endif
+
+namespace Led {
+const __FlashStringHelper* name(Color c) {
+  switch (c) {
+    case Color::Blue:   return F("blue");
+    case Color::White:  return F("white");
+    case Color::Green:  return F("green");
+    case Color::Yellow: return F("yellow");
+    case Color::Red:    return F("red");
+    case Color::Off:
+    default:            return F("off");
+  }
+}
+}  // namespace Led

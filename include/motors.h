@@ -10,4 +10,6 @@ constexpr bool INVERT_RIGHT = false;
 void begin();
 void drive(int left, int right);
 void stop();
+int lastLeft();   // last commanded speeds, for status reports
+int lastRight();
 }  // namespace Motors

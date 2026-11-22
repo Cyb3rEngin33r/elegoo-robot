@@ -124,6 +124,19 @@ void begin() { enter(State::Idle); }
 
 bool active() { return state != State::Idle; }
 
+const __FlashStringHelper* stateName() {
+  switch (state) {
+    case State::Idle: return F("idle");
+    case State::Starting: return F("starting");
+    case State::Forward: return F("forward");
+    case State::LookLeft: return F("looking left");
+    case State::LookRight: return F("looking right");
+    case State::Backing: return F("backing up");
+    case State::Turning: return F("turning");
+  }
+  return F("?");
+}
+
 void start() {
   if (active()) return;
   Serial.println(F("avoid: ON, starting in 1 s (press button or send o to stop)"));

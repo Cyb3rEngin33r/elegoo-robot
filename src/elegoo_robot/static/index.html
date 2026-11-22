@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Car Status</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #677085;
+    --line: #e3e6ec; --track: #e9ecf1; --accent: #2f6fde;
+    --ok: #1f9d55; --warn: #c98a00; --bad: #d13b3b;
+    --led-blue: #2f6fde; --led-white: #d9dde5; --led-green: #1fb35b;
+    --led-yellow: #f2b400; --led-red: #e03c3c; --led-off: #9aa1ad;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2028; --text: #e6e9ef; --muted: #8d96a8;
+      --line: #2a313c; --track: #262c36; --accent: #6b9cff;
+      --ok: #3ccf7a; --warn: #f0b429; --bad: #ff6b6b;
+      --led-white: #f2f4f8; --led-off: #4a515d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--led-off); flex: none; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+  .card h2 { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+  .big { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .wide { grid-column: 1 / -1; }
+  .mode-row { display: flex; align-items: center; gap: 12px; }
+  .led { width: 28px; height: 28px; border-radius: 50%; background: var(--led-off); box-shadow: 0 0 0 3px var(--track); flex: none; }
+  .bar { height: 10px; background: var(--track); border-radius: 5px; overflow: hidden; margin-top: 10px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); border-radius: 5px; transition: width .2s; }
+  .sensors { display: flex; gap: 14px; align-items: flex-end; height: 110px; position: relative; }
+  .sensor { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; }
+  .sensor .col { flex: 1; width: 100%; max-width: 44px; background: var(--track); border-radius: 6px; position: relative; overflow: hidden; }
+  .sensor .fill { position: absolute; bottom: 0; left: 0; right: 0; background: var(--muted); transition: height .2s; }
+  .sensor.on .fill { background: var(--text); }
+  .sensor .thr { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--accent); }
+  .sensor .lbl { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .motor { display: grid; grid-template-columns: 18px 1fr 44px; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .mbar { position: relative; height: 10px; background: var(--track); border-radius: 5px; }
+  .mbar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+  .mbar > div { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 5px; transition: all .2s; }
+  .mbar > div.rev { background: var(--warn); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  .kv span:nth-child(even) { font-variant-numeric: tabular-nums; text-align: right; }
+  .log { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 280px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+  .log li { padding: 2px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; overflow-wrap: anywhere; }
+  .log time { color: var(--muted); flex: none; }
+  .log .meta { color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; }
+  .stale { opacity: .45; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Robot Car Status</h1>
+    <span class="pill"><span class="dot" id="connDot"></span><span id="connText">Connecting to dashboard…</span></span>
+  </header>
+
+  <div id="panels" class="grid stale">
+    <section class="card">
+      <h2>Mode</h2>
+      <div class="mode-row">
+        <div class="led" id="led" title="Status LED"></div>
+        <div>
+          <div class="big" id="mode">–</div>
+          <div class="sub" id="state">–</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Distance ahead</h2>
+      <div class="big" id="dist">–</div>
+      <div class="bar"><div id="distBar"></div></div>
+      <div class="sub" id="distNote">Stops under 25 cm, slows under 50 cm</div>
+    </section>
+
+    <section class="card">
+      <h2>Battery</h2>
+      <div class="big" id="batt">–</div>
+      <div class="bar"><div id="battBar"></div></div>
+      <div class="sub" id="battNote">Approximate</div>
+    </section>
+
+    <section class="card">
+      <h2>Line sensors</h2>
+      <div class="sensors">
+        <div class="sensor" id="sL"><div class="col"><div class="fill"></div><div class="thr"></div></div><div class="lbl">L <b>–</b></div></div>
+        <div class="sensor" id="sM"><div class="col"><div class="fill"></div><div class="thr"></div></div><div class="lbl">M <b>–</b></div></div>
+        <div class="sensor" id="sR"><div class="col"><div class="fill"></div><div class="thr"></div></div><div class="lbl">R <b>–</b></div></div>
+      </div>
+      <div class="sub">Dashed line: on-the-line threshold (300)</div>
+    </section>
+
+    <section class="card">
+      <h2>Motors</h2>
+      <div class="motor"><span>L</span><div class="mbar"><div id="mL"></div></div><span id="mLv">–</span></div>
+      <div class="motor"><span>R</span><div class="mbar"><div id="mR"></div></div><span id="mRv">–</span></div>
+      <div class="sub" style="margin-top:10px">Commanded speed, −255 to 255</div>
+    </section>
+
+    <section class="card">
+      <h2>Details</h2>
+      <div class="kv">
+        <span>Drive speed</span><span id="speed">–</span>
+        <span>Car uptime</span><span id="uptime">–</span>
+        <span>Serial port</span><span id="port">–</span>
+        <span>Last report</span><span id="age">–</span>
+      </div>
+    </section>
+
+    <section class="card wide">
+      <h2>Log</h2>
+      <ul class="log" id="log"><li class="empty">Nothing yet. Decisions from the car appear here.</li></ul>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const THRESHOLD = 300;
+const LED_VARS = { blue: "--led-blue", white: "--led-white", green: "--led-green", yellow: "--led-yellow", red: "--led-red", off: "--led-off" };
+const MODE_NAMES = { idle: "Idle", manual: "Manual drive", avoid: "Obstacle avoidance", follow: "Line following" };
+
+function setConn(color, text) {
+  $("connDot").style.background = `var(${color})`;
+  $("connText").textContent = text;
+}
+
+function fmtUptime(ms) {
+  const s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60);
+  return h ? `${h}h ${m % 60}m` : m ? `${m}m ${s % 60}s` : `${s}s`;
+}
+
+function motor(id, v) {
+  const el = $(id), pct = Math.min(Math.abs(v), 255) / 255 * 50;
+  el.style.left = v >= 0 ? "50%" : `${50 - pct}%`;
+  el.style.width = `${pct}%`;
+  el.classList.toggle("rev", v < 0);
+  $(id + "v").textContent = v;
+}
+
+function sensor(id, v) {
+  const el = $(id);
+  el.querySelector(".fill").style.height = `${Math.min(v, 1023) / 1023 * 100}%`;
+  el.querySelector(".thr").style.bottom = `${THRESHOLD / 1023 * 100}%`;
+  el.querySelector("b").textContent = v;
+  el.classList.toggle("on", v > THRESHOLD);
+}
+
+function render(snap) {
+  const st = snap.status;
+  $("port").textContent = snap.port || "–";
+  if (!snap.connected) {
+    setConn("--bad", "Car not connected. Plug in USB.");
+  } else if (!st) {
+    setConn("--warn", `Connected on ${snap.port}, waiting for reports…`);
+  } else if (snap.statusAge > 2) {
+    setConn("--warn", `No report for ${Math.round(snap.statusAge)} s`);
+  } else {
+    setConn("--ok", `Live on ${snap.port}`);
+  }
+  $("panels").classList.toggle("stale", !st || snap.statusAge > 2);
+  $("age").textContent = st ? `${snap.statusAge.toFixed(1)} s ago` : "–";
+  if (!st) return;
+
+  $("mode").textContent = MODE_NAMES[st.mode] || st.mode;
+  $("state").textContent = st.mode === "idle" ? "Waiting for a command" : st.state;
+  $("led").style.background = `var(${LED_VARS[st.led] || "--led-off"})`;
+
+  const d = st.dist;
+  $("dist").textContent = d == null ? "nothing in range" : `${d} cm`;
+  $("dist").style.fontSize = d == null ? "20px" : "";
+  const distBar = $("distBar");
+  distBar.style.width = `${d == null ? 100 : Math.min(d, 200) / 2}%`;
+  distBar.style.background = d != null && d < 25 ? "var(--bad)" : d != null && d < 50 ? "var(--warn)" : "var(--ok)";
+  $("distNote").textContent = (st.mode === "follow")
+    ? "Not measured while line following"
+    : "Stops under 25 cm, slows under 50 cm";
+
+  if (st.batt == null) {
+    $("batt").textContent = "n/a";
+  } else {
+    $("batt").textContent = `${st.batt.toFixed(2)} V`;
+    // 2 x 18650: ~6.0 V empty, ~8.4 V full
+    const pct = Math.max(0, Math.min(1, (st.batt - 6.0) / 2.4));
+    $("battBar").style.width = `${pct * 100}%`;
+    $("battBar").style.background = pct < 0.2 ? "var(--bad)" : pct < 0.45 ? "var(--warn)" : "var(--ok)";
+    $("battNote").textContent = st.batt < 5.5
+      ? `Battery switch off? (USB power only, raw ${st.battRaw})`
+      : `Approximate (raw ${st.battRaw})`;
+  }
+
+  sensor("sL", st.line[0]); sensor("sM", st.line[1]); sensor("sR", st.line[2]);
+  motor("mL", st.motors[0]); motor("mR", st.motors[1]);
+  $("speed").textContent = st.speed;
+  $("uptime").textContent = fmtUptime(st.up);
+}
+
+function addLog(entries) {
+  if (!entries.length) return;
+  const log = $("log");
+  const empty = log.querySelector(".empty");
+  if (empty) empty.remove();
+  for (const e of entries) {
+    const li = document.createElement("li");
+    const t = document.createElement("time");
+    t.textContent = new Date(e.time * 1000).toLocaleTimeString();
+    const msg = document.createElement("span");
+    msg.textContent = e.text;  // text from the car: never parsed as HTML
+    if (e.text.startsWith("[dashboard]")) msg.className = "meta";
+    li.append(t, msg);
+    log.prepend(li);
+  }
+  while (log.children.length > 200) log.lastChild.remove();
+}
+
+function connect() {
+  const es = new EventSource("/events");
+  es.onmessage = (ev) => {
+    const snap = JSON.parse(ev.data);
+    render(snap);
+    addLog(snap.log);
+  };
+  es.onerror = () => {
+    setConn("--bad", "Dashboard server not reachable. Is car-dashboard running?");
+    $("panels").classList.add("stale");
+  };
+}
+connect();
+</script>
+</body>
+</html>

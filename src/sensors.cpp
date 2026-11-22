@@ -4,6 +4,7 @@
 
 namespace {
 Servo panServo;
+int lastDistance = -1;
 }
 
 namespace Sensors {
@@ -25,9 +26,11 @@ int distanceCm() {
   delayMicroseconds(10);
   digitalWrite(PIN_US_TRIG, LOW);
   unsigned long us = pulseIn(PIN_US_ECHO, HIGH, 30000UL);  // ~5 m timeout
-  if (us == 0) return -1;
-  return us / 58;
+  lastDistance = us == 0 ? -1 : (int)(us / 58);
+  return lastDistance;
 }
+
+int lastDistanceCm() { return lastDistance; }
 
 Line line() {
 #if KIT_VERSION == 4
