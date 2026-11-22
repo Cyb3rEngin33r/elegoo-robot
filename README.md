@@ -12,6 +12,7 @@ include/pins.h      pin maps for both kit versions
 src/motors.cpp      differential drive, speeds -255..255
 src/sensors.cpp     ultrasonic distance, line tracker, pan servo
 src/avoid.cpp       obstacle avoidance (tuning constants at the top)
+src/guard.cpp       collision guard for manual driving
 src/follow.cpp      line following (thresholds and speeds at the top)
 src/led.cpp         status LED (V4 shield RGB LED)
 src/remote.cpp      IR remote (button codes at the top)
@@ -45,7 +46,7 @@ On V4.0 kits, set the shield's upload switch to the upload position while flashi
 (it disconnects the camera module from RX/TX), then switch it back to "Cam".
 
 Console commands: `w s a d` drive, `x` stop, `+ -` speed, `p` ping,
-`l` line sensors, `[ ] \` servo, `< >` servo centre trim (1° left/right, saved in EEPROM), `o` obstacle avoidance on/off, `f` line following on/off, `j`/`J` status reports on/off, `h` help.
+`l` line sensors, `[ ] \` servo, `< >` servo centre trim (1° left/right, saved in EEPROM), `g` collision guard on/off, `o` obstacle avoidance on/off, `f` line following on/off, `j`/`J` status reports on/off, `h` help.
 Only isolated characters count as commands: a character is acted on once the
 line has been quiet for 5 ms before and after it, so bursts of text (like the
 camera module's `{Heartbeat}`) can't be mistaken for commands.
@@ -140,6 +141,7 @@ Then open http://127.0.0.1:8000.
 | Speed − / + | `-` / `+` | slower / faster |
 | Look ◀ / Ahead / ▶ | `Shift`+`←` `→`, `Shift`+`↑` | turn / centre the camera head |
 | Trim ◀ 1° / 1° ▶ | | nudge the head's centre (saved on the car) |
+| Guard | `G` | collision guard on/off (see below) |
 | Obstacle avoidance / Line following | | start / stop a mode (green while running) |
 
 Drive commands last 0.4 s on the car, and the page repeats them every 0.2 s
@@ -148,6 +150,14 @@ away. The page also sends a stop on release, on switching tabs and when the
 window loses focus. The panel is disabled when no live status is coming in.
 Only the dashboard's own page can send commands (JSON from its own origin),
 and only drive, mode, speed and head commands are accepted.
+
+**Collision guard.** Manual forward driving (dashboard, IR remote or console)
+stops when something is within the stopping distance (15 cm + speed/10: 30 cm
+at the default speed 150, 40 cm at 255), and further forward commands are
+refused while it's there. Reverse and spins always work, so the car can back
+out. The distance sensor sits on the camera head, so the guard pauses while
+the head is turned more than 15° from centre. It's on at power-up; `g` toggles
+it. Soft or angled things (fabric, chair legs) can fool the ultrasonic sensor.
 
 The car sends one JSON line every 250 ms after `j` (see `include/status.h`);
 the dashboard sends `j` itself and asks again if the reports stop.

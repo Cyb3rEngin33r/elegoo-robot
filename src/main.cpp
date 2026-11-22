@@ -8,6 +8,8 @@
 //   l        read the line tracker
 //   [ / ] /  pan servo left / right / center ( '\' )
 //   < / >    nudge the servo's centre trim 1 degree left / right (saved)
+//   g        collision guard on/off (stops manual forward driving before
+//            obstacles; on at power-up)
 //   o        obstacle avoidance on/off
 //   f        line following on/off
 //   j / J    status reports for the dashboard on / off (JSON, 4 per second)
@@ -32,6 +34,7 @@
 #include <Arduino.h>
 #include "avoid.h"
 #include "follow.h"
+#include "guard.h"
 #include "led.h"
 #include "motors.h"
 #include "pins.h"
@@ -50,7 +53,7 @@ unsigned long lastByteAt = 0;
 
 void help() {
   Serial.println(F("Commands: w s a d (drive) x (stop) +/- (speed) p (ping) "
-                   "l (line) [ ] \\ (servo) < > (trim) o (avoid) f (follow line) j/J (status on/off) h (help)"));
+                   "l (line) [ ] \\ (servo) < > (trim) g (guard) o (avoid) f (follow line) j/J (status on/off) h (help)"));
 }
 
 bool modeActive() { return Avoid::active() || Follow::active(); }
@@ -65,6 +68,15 @@ void stopAll() {
 void driveFor(int left, int right, unsigned long ms = 400) {
   Avoid::stop();
   Follow::stop();
+  if (left > 0 && right > 0) {
+    if (!Guard::allowForward(speed)) {  // obstacle ahead: refuse
+      Motors::stop();
+      driveUntil = 0;
+      return;
+    }
+  } else {
+    Guard::clear();
+  }
   Motors::drive(left, right);
   driveUntil = millis() + ms;
 }
@@ -178,6 +190,7 @@ void handleCommand(char c) {
     case '\\': panAngle = 90; Sensors::look(panAngle); break;
     case 'j': Status::setEnabled(true); break;
     case 'J': Status::setEnabled(false); break;
+    case 'g': Guard::setEnabled(!Guard::enabled()); break;
     case '<':
     case '>':
       Sensors::setTrim(Sensors::trim() + (c == '<' ? 1 : -1));
@@ -211,6 +224,11 @@ void setup() {
 
 void loop() {
   if (driveUntil && (long)(millis() - driveUntil) >= 0) {
+    Motors::stop();
+    driveUntil = 0;
+  }
+  // Collision guard while driving forward manually.
+  if (driveUntil && Motors::lastLeft() > 0 && Motors::lastRight() > 0 && Guard::check(speed)) {
     Motors::stop();
     driveUntil = 0;
   }

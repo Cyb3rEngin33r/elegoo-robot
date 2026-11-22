@@ -1,4 +1,5 @@
 #include "status.h"
+#include "guard.h"
 #include "led.h"
 #include "motors.h"
 #include "pins.h"
@@ -59,7 +60,9 @@ void update(const __FlashStringHelper* mode, const __FlashStringHelper* state, i
   Serial.print(F(",\"motors\":["));
   Serial.print(Motors::lastLeft()); Serial.print(',');
   Serial.print(Motors::lastRight());
-  Serial.print(F("],\"trim\":"));
+  Serial.print(F("],\"guard\":\""));
+  Serial.print(Guard::stateName());
+  Serial.print(F("\",\"trim\":"));
   Serial.print(Sensors::trim());
   Serial.print(F(",\"led\":\""));
   Serial.print(Led::name(Led::current()));

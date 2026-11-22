@@ -45,8 +45,9 @@ CH340_VID = 0x1A86  # USB-serial chip on the Elegoo UNO board
 BOOT_WAIT_S = 2.5  # the board restarts when the port opens
 STATUS_TIMEOUT_S = 3.0  # no report for this long: ask for reports again
 LOG_LINES = 200
-# Commands the page may send: drive, stop, speed, modes, camera head, head trim.
-ALLOWED_COMMANDS = set("wasdx+-of[]\\<>")
+# Commands the page may send: drive, stop, speed, modes, camera head, head
+# trim, collision guard.
+ALLOWED_COMMANDS = set("wasdx+-of[]\\<>g")
 COMMAND_GAP_S = 0.012  # the car ignores characters that arrive within 5 ms of each other
 WIFI_HOST = "elegoo-car.local"
 WIFI_PORT = 2323

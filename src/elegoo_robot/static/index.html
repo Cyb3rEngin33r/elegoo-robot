@@ -80,6 +80,8 @@
   .ctl .row > span:first-child { width: 64px; color: var(--muted); font-size: 13px; }
   .ctl button { padding: 7px 12px; }
   .ctl button.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .ctl button.warn { background: var(--warn); border-color: var(--warn); color: #fff; }
+  .ctl button.blocked { background: var(--bad); border-color: var(--bad); color: #fff; }
   .ctl .val { min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
   .keys { color: var(--muted); font-size: 12.5px; }
   kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
@@ -112,8 +114,9 @@
         <div class="row"><span>Speed</span><button data-cmd="-" title="Slower (−)">−</button><span class="val" id="speedVal">–</span><button data-cmd="+" title="Faster (+)">+</button></div>
         <div class="row"><span>Look</span><button data-cmd="[" title="Look left ([)">◀ Left</button><button data-cmd="\" title="Look ahead (\)">Ahead</button><button data-cmd="]" title="Look right (])">Right ▶</button></div>
         <div class="row"><span>Trim</span><button data-cmd="<" title="Nudge the head's centre 1° left (saved on the car)">◀ 1°</button><span class="val" id="trimVal">–</span><button data-cmd=">" title="Nudge the head's centre 1° right (saved on the car)">1° ▶</button></div>
+        <div class="row"><span>Guard</span><button data-cmd="g" id="guardBtn" title="Collision guard: stops forward driving before obstacles (G)">–</button><span class="sub" id="guardNote"></span></div>
         <div class="row"><span>Mode</span><button data-cmd="o" id="modeAvoid">Obstacle avoidance</button><button data-cmd="f" id="modeFollow">Line following</button></div>
-        <div class="keys">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>Space</kbd> stop · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> look, <kbd>Shift</kbd>+<kbd>↑</kbd> centre</div>
+        <div class="keys">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>Space</kbd> stop · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> look, <kbd>Shift</kbd>+<kbd>↑</kbd> centre · <kbd>G</kbd> guard</div>
         <div class="sub" id="driveMsg"></div>
       </div>
     </div>
@@ -230,6 +233,11 @@ function render(snap) {
   if (st) {
     $("speedVal").textContent = st.speed;
     $("trimVal").textContent = st.trim == null ? "–" : (st.trim > 0 ? `${st.trim}° L` : st.trim < 0 ? `${-st.trim}° R` : "0°");
+    const g = st.guard, gb = $("guardBtn");
+    gb.textContent = g === "off" ? "Off" : g === "blocked" ? "Obstacle! Stopped" : g === "head turned" ? "Paused" : g === "on" ? "On" : "–";
+    gb.className = g === "on" ? "on" : g === "blocked" ? "blocked" : g === "head turned" ? "warn" : "";
+    $("guardNote").textContent = g === "head turned" ? "head turned: centre it (Shift+↑) so the guard can see ahead"
+      : g === "blocked" ? "reverse or turn away" : g === "off" ? "forward driving isn't protected" : "";
     $("modeAvoid").classList.toggle("on", st.mode === "avoid");
     $("modeFollow").classList.toggle("on", st.mode === "follow");
   }
@@ -400,7 +408,7 @@ document.querySelectorAll("#drive [data-cmd]").forEach((b) => {
 
 // Keyboard.
 const HOLD_KEYS = { w: "w", arrowup: "w", s: "s", arrowdown: "s", a: "a", arrowleft: "a", d: "d", arrowright: "d" };
-const KEY_CMDS = { "+": "+", "=": "+", "-": "-", "_": "-", "[": "[", "]": "]", "\\": "\\" };
+const KEY_CMDS = { "+": "+", "=": "+", "-": "-", "_": "-", "[": "[", "]": "]", "\\": "\\", g: "g", G: "g" };
 const keyBtn = (cmd) => document.querySelector(`#drive [data-hold="${cmd}"]`);
 // Shift + arrows move the camera head instead of driving. Holding repeats,
 // throttled so the head turns at a steady pace (15 degrees per step).

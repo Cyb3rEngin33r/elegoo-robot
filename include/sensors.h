@@ -17,6 +17,8 @@ Line line();
 // trim is added, so 90 means straight ahead even if the servo horn sits a
 // little off.
 void look(int angle);
+// The angle last passed to look() (before trim).
+int lookAngle();
 
 // Centre trim in degrees (positive turns the head left). Saved in EEPROM and
 // restored at power-up; limited to +/-20.

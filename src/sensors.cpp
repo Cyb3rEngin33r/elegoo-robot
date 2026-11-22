@@ -66,4 +66,6 @@ void setTrim(int degrees) {
 
 int trim() { return panTrim; }
 
+int lookAngle() { return panAngle; }
+
 }  // namespace Sensors
