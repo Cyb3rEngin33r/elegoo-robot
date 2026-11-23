@@ -9,6 +9,7 @@
 
 namespace {
 constexpr unsigned long REPORT_EVERY_MS = 250;
+constexpr unsigned long GYRO_EVERY_MS = 100;
 
 // V4 battery divider (10k / 1.5k) on A3, with Elegoo's ~8% correction.
 // Approximate; check against a multimeter if it matters.
@@ -16,6 +17,31 @@ constexpr float VOLTS_PER_COUNT = 0.0375f * 1.08f;
 
 bool enabled = false;
 unsigned long lastReport = 0;
+unsigned long lastGyro = 0;
+
+float wrap180(float h) {
+  h = fmod(h, 360.0f);
+  if (h > 180) h -= 360;
+  if (h <= -180) h += 360;
+  return h;
+}
+
+// Short and quick to send (~45 characters), so it can go out often.
+void gyroReport() {
+  if (!Imu::ok() || millis() - lastGyro < GYRO_EVERY_MS) return;
+  lastGyro = millis();
+  float t;
+  Serial.print(F("{\"gyro\":1,\"h\":"));
+  Serial.print(wrap180(Imu::heading()), 1);
+  Serial.print(F(",\"r\":"));
+  Serial.print(Imu::rate(), 1);
+  Serial.print(F(",\"t\":"));
+  if (Steer::target(t)) Serial.print(wrap180(t), 1);
+  else Serial.print(F("null"));
+  Serial.print(F(",\"c\":"));
+  Serial.print(Steer::correction());
+  Serial.println('}');
+}
 }  // namespace
 
 namespace Status {
@@ -26,7 +52,9 @@ void setEnabled(bool on) {
 }
 
 void update(const __FlashStringHelper* mode, const __FlashStringHelper* state, int speed) {
-  if (!enabled || millis() - lastReport < REPORT_EVERY_MS) return;
+  if (!enabled) return;
+  gyroReport();
+  if (millis() - lastReport < REPORT_EVERY_MS) return;
   lastReport = millis();
 
   // A fresh ping takes up to 30 ms, which would disturb line following, and
@@ -70,11 +98,7 @@ void update(const __FlashStringHelper* mode, const __FlashStringHelper* state, i
   Serial.print(Imu::name());
   Serial.print(F("\",\"heading\":"));
   if (Imu::ok()) {
-    // -180..180, left positive
-    float h = fmod(Imu::heading(), 360.0f);
-    if (h > 180) h -= 360;
-    if (h <= -180) h += 360;
-    Serial.print(h, 1);
+    Serial.print(wrap180(Imu::heading()), 1);  // -180..180, left positive
   } else {
     Serial.print(F("null"));
   }

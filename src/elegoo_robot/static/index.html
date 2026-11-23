@@ -36,6 +36,8 @@
   .big { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; }
   .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
   .wide { grid-column: 1 / -1; }
+  .span2 { grid-column: span 2; }
+  @media (max-width: 520px) { .span2 { grid-column: auto; } }  /* one column: don't force a second */
   .mode-row { display: flex; align-items: center; gap: 12px; }
   .led { width: 28px; height: 28px; border-radius: 50%; background: var(--led-off); box-shadow: 0 0 0 3px var(--track); flex: none; }
   .bar { height: 10px; background: var(--track); border-radius: 5px; overflow: hidden; margin-top: 10px; }
@@ -86,6 +88,26 @@
   .keys { color: var(--muted); font-size: 12.5px; }
   kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
   .drive[aria-disabled="true"] .dpad, .drive[aria-disabled="true"] .ctl { opacity: .4; pointer-events: none; }
+  .gyro-grid { display: grid; grid-template-columns: 150px minmax(170px, 220px) 1fr; gap: 16px 20px; align-items: center; }
+  @media (max-width: 760px) { .gyro-grid { grid-template-columns: 150px 1fr; } .gyro-grid .plot { grid-column: 1 / -1; } }
+  @media (max-width: 420px) { .gyro-grid { grid-template-columns: 1fr; justify-items: center; } .gyro-grid .kv { width: 100%; } }
+  .compass { width: 150px; height: 172px; display: block; }
+  .compass .ring { fill: none; stroke: var(--line); stroke-width: 2; }
+  .compass .tick { stroke: var(--muted); stroke-width: 1.5; }
+  .compass .tlbl { fill: var(--muted); font-size: 10px; text-anchor: middle; dominant-baseline: middle; }
+  .compass .car { fill: var(--accent); }
+  .compass .tgt { fill: none; stroke: var(--text); stroke-width: 2; }
+  .compass .val { fill: var(--text); font-size: 17px; font-weight: 650; text-anchor: middle; font-variant-numeric: tabular-nums; }
+  .compass #needle, .compass #tgtMark { transition: transform .1s linear; }
+  .corr { position: relative; height: 10px; background: var(--track); border-radius: 5px; margin-top: 4px; }
+  .corr::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+  .corr > div { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 5px; }
+  .plot { position: relative; min-width: 0; }
+  .plot canvas { display: block; width: 100%; height: 150px; }
+  .plot .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .plot .legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid var(--accent); vertical-align: middle; margin-right: 5px; }
+  .plot .legend i.dash { border-top: 2px dashed var(--text); }
+  .plot .tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .camera button { font: inherit; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
 </style>
 </head>
@@ -125,6 +147,33 @@
   </section>
 
   <div id="panels" class="grid stale">
+    <section class="card wide" id="gyroCard">
+      <h2>Heading (gyro)</h2>
+      <div class="gyro-grid">
+        <svg class="compass" viewBox="-75 -75 150 172" role="img" aria-label="Heading compass">
+          <title>Heading since power-up: straight up is where the car pointed at start, left turns go anticlockwise</title>
+          <circle class="ring" r="66"/>
+          <g id="ticks"></g>
+          <g id="tgtMark" style="display:none"><path class="tgt" d="M -7 -73 L 0 -62 L 7 -73"/></g>
+          <g id="needle"><path class="car" d="M 0 -52 L 13 -22 L 5 -26 L 5 20 L -5 20 L -5 -26 L -13 -22 Z"/></g>
+          <text class="val" id="compassVal" y="90">–</text>
+        </svg>
+        <div class="kv">
+          <span>Heading</span><span id="gHead">–</span>
+          <span>Turn rate</span><span id="gRate">–</span>
+          <span>Holding</span><span id="gTarget">–</span>
+          <span>Off by</span><span id="gErr">–</span>
+          <span>Correction</span><span id="gCorr">–</span>
+          <span></span><span><div class="corr" title="Steering correction: right of centre speeds up the left wheels (steers right)"><div id="gCorrBar"></div></div></span>
+        </div>
+        <div class="plot">
+          <div class="legend"><span><i></i>Heading</span><span><i class="dash"></i>Target</span><span id="plotRange"></span></div>
+          <canvas id="plot" aria-label="Heading over the last 30 seconds"></canvas>
+          <div class="tip" id="plotTip" hidden></div>
+        </div>
+      </div>
+      <div class="sub" id="gyroNote">Up is where the car pointed at power-up. Left turns count up, right turns down.</div>
+    </section>
     <section class="card">
       <h2>Mode</h2>
       <div class="mode-row">
@@ -167,7 +216,7 @@
       <div class="sub" style="margin-top:10px">Commanded speed, −255 to 255</div>
     </section>
 
-    <section class="card">
+    <section class="card span2">
       <h2>Details</h2>
       <div class="kv">
         <span>Drive speed</span><span id="speed">–</span>
@@ -285,6 +334,149 @@ function render(snap) {
   $("uptime").textContent = fmtUptime(st.up);
 }
 
+// ---- Heading (gyro) ----
+// Angles: degrees, left (anticlockwise) positive, as the car reports them.
+const fmtDeg = (h) => Math.abs(h) < 0.5 ? "0°" : `${Math.abs(h).toFixed(0)}° ${h > 0 ? "L" : "R"}`;
+const wrap = (d) => ((d + 180) % 360 + 360) % 360 - 180;
+(function drawTicks() {
+  const g = $("ticks"), ns = "http://www.w3.org/2000/svg";
+  for (let a = 0; a < 360; a += 30) {
+    const r = (a * Math.PI) / 180, major = a % 90 === 0;
+    const line = document.createElementNS(ns, "line");
+    const r0 = major ? 56 : 60;
+    line.setAttribute("x1", Math.sin(r) * r0); line.setAttribute("y1", -Math.cos(r) * r0);
+    line.setAttribute("x2", Math.sin(r) * 66); line.setAttribute("y2", -Math.cos(r) * 66);
+    line.setAttribute("class", "tick");
+    g.append(line);
+  }
+})();
+
+const HISTORY_S = 30;
+let history = [];        // {t (s), h (unwrapped), tg (unwrapped or null)}
+let lastGyroSeq = 0, unwrapped = null, lastRaw = null;
+
+function addGyro(gy) {
+  if (!gy || gy.seq === lastGyroSeq) return;
+  lastGyroSeq = gy.seq;
+  // The car wraps at +/-180; keep the plotted line continuous.
+  unwrapped = unwrapped == null ? gy.h : unwrapped + wrap(gy.h - lastRaw);
+  lastRaw = gy.h;
+  const tg = gy.t == null ? null : unwrapped + wrap(gy.t - gy.h);
+  history.push({ t: gy.time, h: unwrapped, tg });
+  const cutoff = gy.time - HISTORY_S;
+  while (history.length && history[0].t < cutoff) history.shift();
+}
+
+function renderGyro(snap) {
+  const gy = snap.gyro, st = snap.status;
+  const missing = st && st.imu === "none";
+  $("gyroCard").hidden = !!missing;
+  if (!gy) return;
+  addGyro(gy);
+  // Unwrapped, so the needle turns the short way across 180.
+  $("needle").style.transform = `rotate(${-unwrapped}deg)`;
+  $("compassVal").textContent = fmtDeg(gy.h);
+  $("gHead").textContent = `${gy.h.toFixed(1)}°`;
+  $("gRate").textContent = Math.abs(gy.r) < 0.5 ? "still" : `${Math.abs(gy.r).toFixed(0)}°/s ${gy.r > 0 ? "left" : "right"}`;
+  const tm = $("tgtMark");
+  if (gy.t == null) {
+    tm.style.display = "none";
+    $("gTarget").textContent = "–";
+    $("gErr").textContent = "–";
+  } else {
+    tm.style.display = "";
+    tm.style.transform = `rotate(${-(unwrapped + wrap(gy.t - gy.h))}deg)`;
+    $("gTarget").textContent = `${fmtDeg(gy.t)}${st && st.steer === "turning" ? " (turning)" : ""}`;
+    const err = wrap(gy.t - gy.h);
+    $("gErr").textContent = Math.abs(err) < 0.5 ? "on target" : `${Math.abs(err).toFixed(1)}° ${err > 0 ? "to the left" : "to the right"}`;
+  }
+  // Positive correction speeds up the right side (steers left).
+  const c = gy.c || 0, pct = Math.min(Math.abs(c), 60) / 60 * 50, bar = $("gCorrBar");
+  bar.style.left = c >= 0 ? `${50 - pct}%` : "50%";
+  bar.style.width = `${pct}%`;
+  $("gCorr").textContent = c === 0 ? "none" : `${Math.abs(c)} (steering ${c > 0 ? "left" : "right"})`;
+  drawPlot();
+}
+
+let plotHover = null;    // x position of the pointer over the plot, or null
+function drawPlot() {
+  const cv = $("plot"), dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const col = (v) => css.getPropertyValue(v).trim();
+  const padL = 50, padR = 6, padT = 6, padB = 18;
+  const pw = w - padL - padR, ph = h - padT - padB;
+  if (!history.length) return;
+  const now = history[history.length - 1].t;
+  // Vertical range: everything shown, at least 20 degrees, snapped to 10s.
+  let lo = Infinity, hi = -Infinity;
+  for (const p of history) {
+    lo = Math.min(lo, p.h, p.tg ?? p.h); hi = Math.max(hi, p.h, p.tg ?? p.h);
+  }
+  const mid = (lo + hi) / 2, span = Math.max(hi - lo + 4, 20);
+  lo = Math.floor((mid - span / 2) / 10) * 10; hi = Math.ceil((mid + span / 2) / 10) * 10;
+  const x = (t) => padL + pw * (1 - (now - t) / HISTORY_S);
+  const y = (v) => padT + ph * (1 - (v - lo) / (hi - lo));
+  // Grid and axes: recessive.
+  const step = [10, 15, 30, 45, 90, 180].find((s) => (hi - lo) / s <= 5) || 360;
+  ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  ctx.strokeStyle = col("--line"); ctx.fillStyle = col("--muted"); ctx.lineWidth = 1;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    ctx.beginPath(); ctx.moveTo(padL, Math.round(y(v)) + .5); ctx.lineTo(w - padR, Math.round(y(v)) + .5); ctx.stroke();
+    ctx.fillText(fmtDeg(wrap(v)), padL - 6, y(v));
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (let s = 0; s <= HISTORY_S; s += 10) ctx.fillText(s ? `-${s}s` : "now", Math.min(Math.max(x(now - s), padL + 12), w - padR - 12), h - padB + 4);
+  $("plotRange").textContent = "last 30 s";
+  // Target (dashed), only where there was one.
+  ctx.save();
+  ctx.beginPath(); ctx.rect(padL, padT, pw, ph); ctx.clip();
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.strokeStyle = col("--text"); ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  let pen = false;
+  for (const p of history) {
+    if (p.tg == null) { pen = false; continue; }
+    pen ? ctx.lineTo(x(p.t), y(p.tg)) : ctx.moveTo(x(p.t), y(p.tg));
+    pen = true;
+  }
+  ctx.stroke();
+  // Heading.
+  ctx.setLineDash([]); ctx.strokeStyle = col("--accent");
+  ctx.beginPath();
+  history.forEach((p, i) => (i ? ctx.lineTo(x(p.t), y(p.h)) : ctx.moveTo(x(p.t), y(p.h))));
+  ctx.stroke();
+  ctx.restore();
+  // Hover: crosshair and the nearest reading.
+  const tip = $("plotTip");
+  if (plotHover == null || plotHover < padL) { tip.hidden = true; return; }
+  const tAt = now - (1 - (plotHover - padL) / pw) * HISTORY_S;
+  let best = history[0];
+  for (const p of history) if (Math.abs(p.t - tAt) < Math.abs(best.t - tAt)) best = p;
+  const bx = x(best.t);
+  ctx.strokeStyle = col("--muted"); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(Math.round(bx) + .5, padT); ctx.lineTo(Math.round(bx) + .5, padT + ph); ctx.stroke();
+  ctx.fillStyle = col("--accent"); ctx.strokeStyle = col("--card"); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(bx, y(best.h), 4, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+  const ago = now - best.t;
+  tip.textContent = `${ago < 0.15 ? "now" : `${ago.toFixed(1)} s ago`}: ${fmtDeg(wrap(best.h))}` +
+    (best.tg == null ? "" : `, target ${fmtDeg(wrap(best.tg))}`);
+  tip.hidden = false;
+  const legendH = cv.offsetTop;
+  tip.style.top = `${legendH + 4}px`;
+  tip.style.left = `${Math.min(Math.max(bx - tip.offsetWidth / 2, 0), w - tip.offsetWidth)}px`;
+}
+$("plot").addEventListener("pointermove", (e) => { plotHover = e.offsetX; drawPlot(); });
+$("plot").addEventListener("pointerleave", () => { plotHover = null; drawPlot(); });
+window.addEventListener("resize", drawPlot);
+
 function addLog(entries) {
   if (!entries.length) return;
   const log = $("log");
@@ -308,6 +500,7 @@ function connect() {
   es.onmessage = (ev) => {
     const snap = JSON.parse(ev.data);
     render(snap);
+    renderGyro(snap);
     addLog(snap.log);
   };
   es.onerror = () => {

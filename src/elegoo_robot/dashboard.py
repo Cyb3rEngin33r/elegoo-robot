@@ -75,6 +75,9 @@ class CarLink:
         self.connected = False
         self.status: dict | None = None
         self.status_time = 0.0
+        # Short gyro reports, 10 a second (see include/status.h).
+        self.gyro: dict | None = None
+        self.gyro_seq = 0
         self.log: deque[tuple[int, float, str]] = deque(maxlen=LOG_LINES)
         self.log_seq = 0
         self.version = 0  # bumped on every change, so streams know when to send
@@ -117,6 +120,7 @@ class CarLink:
             self.port = port
             if not connected:
                 self.status = None
+                self.gyro = None
             self._changed()
 
     def _run(self) -> None:
@@ -177,6 +181,12 @@ class CarLink:
                     self.status_time = time.time()
                     self._changed()
                 return
+            if isinstance(data, dict) and data.get("gyro") == 1:
+                with self.lock:
+                    self.gyro_seq += 1
+                    self.gyro = {**data, "seq": self.gyro_seq, "time": time.time()}
+                    self._changed()
+                return
         self._add_log(line)
 
     def snapshot(self, after_seq: int) -> tuple[int, dict]:
@@ -187,6 +197,7 @@ class CarLink:
                 "port": self.port,
                 "status": self.status,
                 "statusAge": round(now - self.status_time, 1) if self.status else None,
+                "gyro": self.gyro,
                 "log": [
                     {"seq": seq, "time": t, "text": text}
                     for seq, t, text in self.log
@@ -216,7 +227,7 @@ def create_app(link: CarLink, camera_url: str | None = None) -> Starlette:
                     last_version = version
                     last_sent = time.time()
                     yield f"data: {json.dumps(snap)}\n\n"
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)  # gyro reports come 10 a second
 
         return StreamingResponse(
             stream(),

@@ -250,9 +250,12 @@ void update() {
     bias += (z - bias) * BIAS_FOLLOW;
     if (fabs(dps) < NOISE_DPS) dps = 0;
   }
+  float previousRate = yawRate;
   yawRate = YAW_SIGN * dps;
-  // Long gaps (a slow ultrasonic ping) are still integrated, but capped.
-  yaw += yawRate * min(dt, 50000UL) * 1e-6f;
+  // Average of this reading and the last (trapezoid rule), so gaps while the
+  // loop is busy (an ultrasonic ping, a status report) cost little accuracy.
+  // Very long gaps are capped.
+  yaw += (yawRate + previousRate) * 0.5f * min(dt, 50000UL) * 1e-6f;
 }
 
 bool ok() { return chip != Chip::None; }

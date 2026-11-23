@@ -112,7 +112,10 @@ it holds a position, which the gyro feels, so the servo's signal is switched
 off 0.6 s after each head move; its gears hold the head.
 
 Status reports include `heading` (degrees since power-up, left positive,
--180..180), `steer` and `imuErr` (failed reads, gyro restarts). If the gyro
+-180..180), `steer` and `imuErr` (failed reads, gyro restarts). A short gyro
+report (heading, turn rate, target, correction) also goes out 10 times a
+second; the dashboard's **Heading** card shows it as a compass, readouts and
+a 30-second graph of heading against the target. If the gyro
 isn't found, the I2C devices present are printed at start-up.
 
 A flat or switched-off battery shows up as stalls: on USB power alone the

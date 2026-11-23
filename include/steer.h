@@ -21,6 +21,11 @@ void cancel();
 // Call on every loop(). Drives the motors while straight() or turn() is active.
 void update();
 
+// For the dashboard: the heading being held or turned to (false if none),
+// and the straight-line correction (motor counts, positive steers left).
+bool target(float& heading);
+int correction();
+
 bool holdEnabled();
 void setHoldEnabled(bool on);
 // "off", "no gyro", "on", "holding" or "turning", for status reports.

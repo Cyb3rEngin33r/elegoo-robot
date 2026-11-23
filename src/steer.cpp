@@ -35,9 +35,10 @@ Mode mode = Mode::Idle;
 bool holdOn = true;
 
 int base = 0;            // straight: signed speed
-float target = 0;        // heading to hold or reach
+float targetHeading = 0;  // heading to hold or reach
 float integral = 0;
 unsigned long lastSteer = 0;
+int lastCorrection = 0;
 
 int turnSpeed = 0;
 int boost = 0;
@@ -54,7 +55,7 @@ void finishTurn(const __FlashStringHelper* how) {
   Serial.print(F("turn: "));
   Serial.print(how);
   Serial.print(F(", "));
-  Serial.print(target - Imu::heading(), 1);
+  Serial.print(targetHeading - Imu::heading(), 1);
   Serial.print(F(" deg off, boost "));
   Serial.println(boost);
 }
@@ -64,18 +65,19 @@ void updateStraight() {
   float dt = (now - lastSteer) * 1e-3f;
   if (now - lastSteer < STEER_EVERY_MS) return;
   lastSteer = now;
-  float err = target - Imu::heading();   // positive: needs to turn left
+  float err = targetHeading - Imu::heading();   // positive: needs to turn left
   int limit = min(MAX_CORRECTION, abs(base) / 2);
   float iLimit = min(limit, MAX_INTEGRAL_CORRECTION) / KI;
   integral = constrain(integral + err * dt, -iLimit, iLimit);
   float c = KP * err + KI * integral - KD * Imu::rate();
   int ci = constrain((int)c, -limit, limit);
+  lastCorrection = ci;
   // Turning left needs the right side faster, forward or backward alike.
   Motors::drive(base - ci, base + ci);
 }
 
 void updateTurn() {
-  float remaining = target - Imu::heading();
+  float remaining = targetHeading - Imu::heading();
   if (millis() - turnStarted > TURN_TIMEOUT_MS) {
     finishTurn(F("timed out"));
     return;
@@ -105,7 +107,7 @@ void updateTurn() {
 
 void updateSettle() {
   if (millis() - settleStarted < SETTLE_MS) return;
-  float remaining = target - Imu::heading();
+  float remaining = targetHeading - Imu::heading();
   if (fabs(remaining) <= DONE_DEG + 1) {
     finishTurn(F("done"));
   } else if (nudges >= MAX_NUDGES) {
@@ -129,8 +131,9 @@ void straight(int speed) {
   }
   // Same direction as the drive in progress: keep its heading.
   if (mode != Mode::Straight || sgn(speed) != sgn(base)) {
-    target = Imu::heading();
+    targetHeading = Imu::heading();
     integral = 0;
+    lastCorrection = 0;
     lastSteer = millis();
     Motors::drive(speed, speed);
   }
@@ -143,7 +146,7 @@ bool turn(int degrees, int speed) {
     Serial.println(F("turn: no gyro"));
     return false;
   }
-  target = Imu::heading() + degrees;
+  targetHeading = Imu::heading() + degrees;
   turnSpeed = max(abs(speed), TURN_MIN_SPEED);
   nudges = 0;
   boost = 0;
@@ -155,7 +158,17 @@ bool turn(int degrees, int speed) {
 
 bool turning() { return mode == Mode::Turn || mode == Mode::Settle; }
 
-void cancel() { mode = Mode::Idle; }
+void cancel() {
+  mode = Mode::Idle;
+  lastCorrection = 0;
+}
+
+bool target(float& heading) {
+  heading = targetHeading;
+  return mode != Mode::Idle;
+}
+
+int correction() { return mode == Mode::Straight ? lastCorrection : 0; }
 
 void update() {
   switch (mode) {
