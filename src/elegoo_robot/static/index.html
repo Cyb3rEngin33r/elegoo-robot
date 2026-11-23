@@ -114,9 +114,11 @@
         <div class="row"><span>Speed</span><button data-cmd="-" title="Slower (−)">−</button><span class="val" id="speedVal">–</span><button data-cmd="+" title="Faster (+)">+</button></div>
         <div class="row"><span>Look</span><button data-cmd="[" title="Look left ([)">◀ Left</button><button data-cmd="\" title="Look ahead (\)">Ahead</button><button data-cmd="]" title="Look right (])">Right ▶</button></div>
         <div class="row"><span>Trim</span><button data-cmd="<" title="Nudge the head's centre 1° left (saved on the car)">◀ 1°</button><span class="val" id="trimVal">–</span><button data-cmd=">" title="Nudge the head's centre 1° right (saved on the car)">1° ▶</button></div>
+        <div class="row"><span>Turn</span><button data-cmd="q" title="Turn exactly 90° left (Ctrl+←)">⟲ 90° left</button><button data-cmd="e" title="Turn exactly 90° right (Ctrl+→)">90° right ⟳</button><span class="val" id="headingVal" title="Heading since power-up (gyro)">–</span></div>
+        <div class="row"><span>Straight</span><button data-cmd="k" id="steerBtn" title="Gyro keeps forward and reverse driving in a straight line (K)">–</button><span class="sub" id="steerNote"></span></div>
         <div class="row"><span>Guard</span><button data-cmd="g" id="guardBtn" title="Collision guard: stops forward driving before obstacles (G)">–</button><span class="sub" id="guardNote"></span></div>
         <div class="row"><span>Mode</span><button data-cmd="o" id="modeAvoid">Obstacle avoidance</button><button data-cmd="f" id="modeFollow">Line following</button></div>
-        <div class="keys">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>Space</kbd> stop · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> look, <kbd>Shift</kbd>+<kbd>↑</kbd> centre · <kbd>G</kbd> guard</div>
+        <div class="keys">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>Space</kbd> stop · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> look, <kbd>Shift</kbd>+<kbd>↑</kbd> centre · <kbd>Ctrl</kbd>+<kbd>←</kbd><kbd>→</kbd> turn 90° · <kbd>K</kbd> straight · <kbd>G</kbd> guard</div>
         <div class="sub" id="driveMsg"></div>
       </div>
     </div>
@@ -238,6 +240,12 @@ function render(snap) {
     gb.className = g === "on" ? "on" : g === "blocked" ? "blocked" : g === "head turned" ? "warn" : "";
     $("guardNote").textContent = g === "head turned" ? "head turned: centre it (Shift+↑) so the guard can see ahead"
       : g === "blocked" ? "reverse or turn away" : g === "off" ? "forward driving isn't protected" : "";
+    const h = st.heading;
+    $("headingVal").textContent = h == null ? "–" : Math.abs(h) < 0.5 ? "0°" : `${Math.abs(h).toFixed(0)}° ${h > 0 ? "L" : "R"}`;
+    const sv = st.steer, sb = $("steerBtn");
+    sb.textContent = sv === "off" ? "Off" : sv === "no gyro" ? "No gyro" : sv === "holding" ? "Holding" : sv === "turning" ? "Turning" : sv ? "On" : "–";
+    sb.className = sv === "on" || sv === "holding" || sv === "turning" ? "on" : sv === "no gyro" ? "warn" : "";
+    $("steerNote").textContent = st.imu && st.imu !== "none" ? st.imu : sv ? "gyro not found" : "";
     $("modeAvoid").classList.toggle("on", st.mode === "avoid");
     $("modeFollow").classList.toggle("on", st.mode === "follow");
   }
@@ -408,7 +416,9 @@ document.querySelectorAll("#drive [data-cmd]").forEach((b) => {
 
 // Keyboard.
 const HOLD_KEYS = { w: "w", arrowup: "w", s: "s", arrowdown: "s", a: "a", arrowleft: "a", d: "d", arrowright: "d" };
-const KEY_CMDS = { "+": "+", "=": "+", "-": "-", "_": "-", "[": "[", "]": "]", "\\": "\\", g: "g", G: "g" };
+const KEY_CMDS = { "+": "+", "=": "+", "-": "-", "_": "-", "[": "[", "]": "]", "\\": "\\", g: "g", G: "g", k: "k", K: "k" };
+// Ctrl + left/right: exact 90-degree turns (gyro).
+const TURN_KEYS = { arrowleft: "q", arrowright: "e" };
 const keyBtn = (cmd) => document.querySelector(`#drive [data-hold="${cmd}"]`);
 // Shift + arrows move the camera head instead of driving. Holding repeats,
 // throttled so the head turns at a steady pace (15 degrees per step).
@@ -416,8 +426,14 @@ const LOOK_KEYS = { arrowleft: "[", arrowright: "]", arrowup: "\\" };
 const LOOK_REPEAT_MS = 250;
 let lastLook = 0;
 document.addEventListener("keydown", (e) => {
-  if (e.ctrlKey || e.metaKey || e.altKey || $("drive").getAttribute("aria-disabled") === "true") return;
+  if ($("drive").getAttribute("aria-disabled") === "true") return;
   const k = e.key.toLowerCase();
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && TURN_KEYS[k]) {
+    e.preventDefault();
+    if (!e.repeat) { releaseHold(false); sendCmd(TURN_KEYS[k]); }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (k === " " || k === "escape") { e.preventDefault(); releaseHold(false); sendCmd("x"); return; }
   if (e.shiftKey && LOOK_KEYS[k]) {
     e.preventDefault();

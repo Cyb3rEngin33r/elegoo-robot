@@ -1,9 +1,11 @@
 #include "status.h"
 #include "guard.h"
+#include "imu.h"
 #include "led.h"
 #include "motors.h"
 #include "pins.h"
 #include "sensors.h"
+#include "steer.h"
 
 namespace {
 constexpr unsigned long REPORT_EVERY_MS = 250;
@@ -64,6 +66,25 @@ void update(const __FlashStringHelper* mode, const __FlashStringHelper* state, i
   Serial.print(Guard::stateName());
   Serial.print(F("\",\"trim\":"));
   Serial.print(Sensors::trim());
+  Serial.print(F(",\"imu\":\""));
+  Serial.print(Imu::name());
+  Serial.print(F("\",\"heading\":"));
+  if (Imu::ok()) {
+    // -180..180, left positive
+    float h = fmod(Imu::heading(), 360.0f);
+    if (h > 180) h -= 360;
+    if (h <= -180) h += 360;
+    Serial.print(h, 1);
+  } else {
+    Serial.print(F("null"));
+  }
+  Serial.print(F(",\"imuErr\":["));
+  Serial.print(Imu::errors()); Serial.print(',');
+  Serial.print(Imu::restartCount());
+  Serial.print(']');
+  Serial.print(F(",\"steer\":\""));
+  Serial.print(Steer::stateName());
+  Serial.print(F("\""));
   Serial.print(F(",\"led\":\""));
   Serial.print(Led::name(Led::current()));
   Serial.println(F("\"}"));

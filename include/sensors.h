@@ -3,6 +3,8 @@
 
 namespace Sensors {
 void begin();
+// Call on every loop(): switches the servo off once it has reached its angle.
+void update();
 
 // Distance from the ultrasonic sensor in cm, or -1 if nothing within range.
 int distanceCm();

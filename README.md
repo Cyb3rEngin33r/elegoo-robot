@@ -13,6 +13,8 @@ src/motors.cpp      differential drive, speeds -255..255
 src/sensors.cpp     ultrasonic distance, line tracker, pan servo
 src/avoid.cpp       obstacle avoidance (tuning constants at the top)
 src/guard.cpp       collision guard for manual driving
+src/imu.cpp         gyro on the shield (MPU6050 or QMI8658C): heading
+src/steer.cpp       gyro straight-line driving and exact turns (tuning at the top)
 src/follow.cpp      line following (thresholds and speeds at the top)
 src/led.cpp         status LED (V4 shield RGB LED)
 src/remote.cpp      IR remote (button codes at the top)
@@ -45,7 +47,7 @@ Turn the car's battery switch on for the motors to run (USB alone won't power th
 On V4.0 kits, set the shield's upload switch to the upload position while flashing
 (it disconnects the camera module from RX/TX), then switch it back to "Cam".
 
-Console commands: `w s a d` drive, `x` stop, `+ -` speed, `p` ping,
+Console commands: `w s a d` drive, `x` stop, `q e` turn exactly 90° left/right, `k` straight-line hold on/off, `+ -` speed, `p` ping,
 `l` line sensors, `[ ] \` servo, `< >` servo centre trim (1° left/right, saved in EEPROM), `g` collision guard on/off, `o` obstacle avoidance on/off, `f` line following on/off, `j`/`J` status reports on/off, `h` help.
 Only isolated characters count as commands: a character is acted on once the
 line has been quiet for 5 ms before and after it, so bursts of text (like the
@@ -88,6 +90,34 @@ The thresholds in `src/follow.cpp` were calibrated on one floor and tape
 (floor reads about 40, tape about 700 to 900, lifted about 1020). On a different
 surface, check the readings with `l` and adjust `LINE_THRESHOLD`.
 
+## Gyro: straight lines and exact turns
+
+The V4 shield carries a gyro (an MPU6050 at I2C 0x68 on this car; newer
+shields use a QMI8658C, which is also supported). The car uses it to know
+which way it points:
+
+- **Straight lines.** Forward and reverse drives (`w`/`s`, the remote's ▲▼,
+  the dashboard) hold the heading the car had when the drive started, speeding
+  one side up a little to cancel drift. A held key keeps the same heading.
+  `k` turns this off, to compare.
+- **Exact turns.** `q`/`e` (dashboard `Ctrl`+`←`/`→`, remote 4/6) spin
+  90° on the spot, slowing near the end and nudging back if they overshoot;
+  within about 2° on carpet. If the car stops rotating (a wheel stalls on
+  carpet), the power goes up step by step; a turn gives up after 6 s.
+
+**Keep the car still for a moment at power-up**: the gyro measures its zero
+point then, waiting (up to 5 s) until the car is still. It keeps the zero
+point up to date whenever the car stands still. The head servo buzzes while
+it holds a position, which the gyro feels, so the servo's signal is switched
+off 0.6 s after each head move; its gears hold the head.
+
+Status reports include `heading` (degrees since power-up, left positive,
+-180..180), `steer` and `imuErr` (failed reads, gyro restarts). If the gyro
+isn't found, the I2C devices present are printed at start-up.
+
+A flat or switched-off battery shows up as stalls: on USB power alone the
+motors get about 2 V and the UNO can reset. Check `batt` (7-8.4 V is good).
+
 ## IR remote
 
 The kit's IR remote works at any time:
@@ -98,6 +128,7 @@ The kit's IR remote works at any time:
 | OK | stop everything |
 | 1 | obstacle avoidance on/off |
 | 2 | line following on/off |
+| 4 / 6 | turn exactly 90° left / right (gyro) |
 | * / # | slower / faster |
 
 Like the shield button, 1 or 2 stops whichever mode is running. Buttons that
@@ -141,6 +172,8 @@ Then open http://127.0.0.1:8000.
 | Speed − / + | `-` / `+` | slower / faster |
 | Look ◀ / Ahead / ▶ | `Shift`+`←` `→`, `Shift`+`↑` | turn / centre the camera head |
 | Trim ◀ 1° / 1° ▶ | | nudge the head's centre (saved on the car) |
+| Turn ⟲ 90° / 90° ⟳ | `Ctrl`+`←` `→` | exact 90° turn (gyro); shows the heading |
+| Straight | `K` | gyro straight-line hold on/off |
 | Guard | `G` | collision guard on/off (see below) |
 | Obstacle avoidance / Line following | | start / stop a mode (green while running) |
 
@@ -149,7 +182,7 @@ while held, so the car stops by itself if the page, browser or Wi-Fi goes
 away. The page also sends a stop on release, on switching tabs and when the
 window loses focus. The panel is disabled when no live status is coming in.
 Only the dashboard's own page can send commands (JSON from its own origin),
-and only drive, mode, speed and head commands are accepted.
+and only drive, turn, mode, speed and head commands are accepted.
 
 **Collision guard.** Manual forward driving (dashboard, IR remote or console)
 stops when something is within the stopping distance (15 cm + speed/10: 30 cm

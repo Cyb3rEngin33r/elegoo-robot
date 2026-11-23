@@ -1,7 +1,10 @@
 // Elegoo Smart Robot Car: serial test console + obstacle avoidance.
 //
 // Open the serial monitor at 115200 baud and send single-letter commands:
-//   w/s/a/d  forward / back / spin left / spin right (runs for 400 ms)
+//   w/s/a/d  forward / back / spin left / spin right (runs for 400 ms);
+//            w and s hold a straight line using the gyro
+//   q / e    turn exactly 90 degrees left / right (gyro)
+//   k        straight-line hold on/off (on at power-up)
 //   x        stop
 //   + / -    change speed
 //   p        ping the ultrasonic sensor
@@ -19,12 +22,16 @@
 // following; any press while a mode is running stops it.
 //
 // IR remote: hold an arrow to drive (stops ~0.25 s after release), OK = stop,
-// 1 = obstacle avoidance, 2 = line following, * / # = slower / faster.
+// 1 = obstacle avoidance, 2 = line following, 4 / 6 = turn 90 degrees
+// left / right, * / # = slower / faster.
 //
 // Only isolated characters are commands: a character is acted on once the
 // line has been quiet for 5 ms before and after it. Bursts of text, such as
 // the camera module's startup messages or {Heartbeat}, are ignored as a whole,
 // so their letters can't be mistaken for drive commands.
+//
+// Keep the car still for the first second after power-up: the gyro measures
+// its zero point then.
 //
 // The car never drives on power-up. Both modes wait 1 s before moving.
 // Any drive command or x also stops them.
@@ -35,12 +42,14 @@
 #include "avoid.h"
 #include "follow.h"
 #include "guard.h"
+#include "imu.h"
 #include "led.h"
 #include "motors.h"
 #include "pins.h"
 #include "remote.h"
 #include "status.h"
 #include "sensors.h"
+#include "steer.h"
 
 namespace {
 int speed = 150;
@@ -53,7 +62,7 @@ unsigned long lastByteAt = 0;
 
 void help() {
   Serial.println(F("Commands: w s a d (drive) x (stop) +/- (speed) p (ping) "
-                   "l (line) [ ] \\ (servo) < > (trim) g (guard) o (avoid) f (follow line) j/J (status on/off) h (help)"));
+                   "q e (turn 90) k (straight hold) l (line) [ ] \\ (servo) < > (trim) g (guard) o (avoid) f (follow line) j/J (status on/off) h (help)"));
 }
 
 bool modeActive() { return Avoid::active() || Follow::active(); }
@@ -61,6 +70,13 @@ bool modeActive() { return Avoid::active() || Follow::active(); }
 void stopAll() {
   Avoid::stop();
   Follow::stop();
+  Steer::cancel();
+  Motors::stop();
+  driveUntil = 0;
+}
+
+void stopDriving() {
+  Steer::cancel();
   Motors::stop();
   driveUntil = 0;
 }
@@ -70,15 +86,26 @@ void driveFor(int left, int right, unsigned long ms = 400) {
   Follow::stop();
   if (left > 0 && right > 0) {
     if (!Guard::allowForward(speed)) {  // obstacle ahead: refuse
-      Motors::stop();
-      driveUntil = 0;
+      stopDriving();
       return;
     }
   } else {
     Guard::clear();
   }
-  Motors::drive(left, right);
+  if (left == right) {
+    Steer::straight(left);
+  } else {
+    Steer::cancel();
+    Motors::drive(left, right);
+  }
   driveUntil = millis() + ms;
+}
+
+// Gyro turn on the spot; positive = left.
+void turnBy(int degrees) {
+  stopAll();
+  Guard::clear();
+  Steer::turn(degrees, speed);
 }
 
 // Start a mode, or stop everything if any mode is already running.
@@ -152,6 +179,8 @@ void handleRemote() {
         case Remote::Button::Ok:   stopAll(); break;
         case Remote::Button::Num1: toggleMode(false); break;
         case Remote::Button::Num2: toggleMode(true); break;
+        case Remote::Button::Num4: turnBy(90); break;
+        case Remote::Button::Num6: turnBy(-90); break;
         case Remote::Button::Star: handleCommand('-'); break;
         case Remote::Button::Hash: handleCommand('+'); break;
         default: break;  // other buttons unused for now
@@ -166,6 +195,9 @@ void handleCommand(char c) {
     case 'a': driveFor(-speed, speed); break;
     case 'd': driveFor(speed, -speed); break;
     case 'x': stopAll(); break;
+    case 'q': turnBy(90); break;
+    case 'e': turnBy(-90); break;
+    case 'k': Steer::setHoldEnabled(!Steer::holdEnabled()); break;
     case 'o': toggleMode(false); break;
     case 'f': toggleMode(true); break;
     case '+': speed = min(speed + 25, 255); Serial.print(F("speed ")); Serial.println(speed); break;
@@ -211,6 +243,7 @@ void setup() {
   Avoid::begin();  // sets the LED to blue (idle)
   Follow::begin();
   Remote::begin();
+  Imu::begin();
 #if KIT_VERSION == 4  // only the V4 shield has the push button
   pinMode(PIN_BUTTON, INPUT_PULLUP);
   buttonDown = lastReading = digitalRead(PIN_BUTTON) == LOW;
@@ -223,15 +256,14 @@ void setup() {
 }
 
 void loop() {
-  if (driveUntil && (long)(millis() - driveUntil) >= 0) {
-    Motors::stop();
-    driveUntil = 0;
-  }
+  Imu::update();
+  Sensors::update();
+  if (driveUntil && (long)(millis() - driveUntil) >= 0) stopDriving();
   // Collision guard while driving forward manually.
   if (driveUntil && Motors::lastLeft() > 0 && Motors::lastRight() > 0 && Guard::check(speed)) {
-    Motors::stop();
-    driveUntil = 0;
+    stopDriving();
   }
+  Steer::update();
 
 #if KIT_VERSION == 4  // only the V4 shield has the push button
   switch (buttonEvent()) {
@@ -248,6 +280,7 @@ void loop() {
   // Status report: which mode is in charge, and what it's doing.
   if (Avoid::active())       Status::update(F("avoid"), Avoid::stateName(), speed);
   else if (Follow::active()) Status::update(F("follow"), Follow::stateName(), speed);
+  else if (Steer::turning()) Status::update(F("manual"), F("turning"), speed);
   else if (driveUntil)       Status::update(F("manual"), F("driving"), speed);
   else                       Status::update(F("idle"), F("idle"), speed);
 
