@@ -15,6 +15,7 @@ src/avoid.cpp       obstacle avoidance (tuning constants at the top)
 src/guard.cpp       collision guard for manual driving
 src/imu.cpp         gyro on the shield (MPU6050 or QMI8658C): heading
 src/steer.cpp       gyro straight-line driving and exact turns (tuning at the top)
+src/bump.cpp        bump detection with the gyro chip's accelerometer
 src/follow.cpp      line following (thresholds and speeds at the top)
 src/led.cpp         status LED (V4 shield RGB LED)
 src/remote.cpp      IR remote (button codes at the top)
@@ -117,6 +118,26 @@ report (heading, turn rate, target, correction) also goes out 10 times a
 second; the dashboard's **Heading** card shows it as a compass, readouts and
 a 30-second graph of heading against the target. If the gyro
 isn't found, the I2C devices present are printed at start-up.
+
+## Bump detection
+
+The same chip's accelerometer catches collisions the ultrasonic sensor
+misses (chair legs, low or soft things, anything behind the car). Hitting a
+wall at speed 150 gives a 5-8 g jolt along the direction of travel; normal
+driving on carpet and hard floor stays under about 2 g, so anything over
+3 g while driving forward (or backward) counts as a bump. It's always on,
+guard or not:
+
+- **Manual driving** stops. A held forward key (or remote button) stays
+  refused; let go and press again, stop, reverse or turn to carry on.
+- **Obstacle avoidance** backs up and looks around again (after a bump
+  behind it, it just stops and looks around).
+- **Line following** stops.
+
+The console prints `bump: front, 7.8 g, stopped`; the dashboard log shows
+it and the Details panel counts bumps. Very soft obstacles (a cushion) may
+not jolt hard enough; the threshold is `BUMP_G` in `src/bump.cpp`. The gyro
+report's `jx`/`jy` show the biggest jolt in each 0.1 s, for tuning.
 
 A flat or switched-off battery shows up as stalls: on USB power alone the
 motors get about 2 V and the UNO can reset. Check `batt` (7-8.4 V is good).

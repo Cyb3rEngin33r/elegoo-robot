@@ -11,6 +11,9 @@ void begin();
 void update();   // call on every loop()
 void start();    // waits 1 s, then starts driving
 void stop();
+// The car hit something the distance sensor missed: back up (or, if it
+// hit something behind, just stop) and look around.
+void bumped(bool front);
 bool active();
 const __FlashStringHelper* stateName();  // for status reports
 }  // namespace Avoid

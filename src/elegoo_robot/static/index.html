@@ -223,6 +223,7 @@
         <span>Car uptime</span><span id="uptime">–</span>
         <span>Serial port</span><span id="port">–</span>
         <span>Last report</span><span id="age">–</span>
+        <span>Bumps</span><span id="bumps">–</span>
       </div>
     </section>
 
@@ -332,6 +333,7 @@ function render(snap) {
   motor("mL", st.motors[0]); motor("mR", st.motors[1]);
   $("speed").textContent = st.speed;
   $("uptime").textContent = fmtUptime(st.up);
+  $("bumps").textContent = !st.bump ? "–" : st.bump[0] === 0 ? "none" : `${st.bump[0]} (last ${st.bump[1].toFixed(1)} g)`;
 }
 
 // ---- Heading (gyro) ----

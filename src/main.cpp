@@ -33,6 +33,10 @@
 // Keep the car still for the first second after power-up: the gyro measures
 // its zero point then.
 //
+// Bumps (accelerometer, always on): hitting something stops a manual drive
+// and refuses a held forward key; obstacle avoidance backs up and looks
+// around; line following stops.
+//
 // The car never drives on power-up. Both modes wait 1 s before moving.
 // Any drive command or x also stops them.
 //
@@ -40,6 +44,7 @@
 
 #include <Arduino.h>
 #include "avoid.h"
+#include "bump.h"
 #include "follow.h"
 #include "guard.h"
 #include "imu.h"
@@ -70,6 +75,7 @@ bool modeActive() { return Avoid::active() || Follow::active(); }
 void stopAll() {
   Avoid::stop();
   Follow::stop();
+  Bump::clear();
   Steer::cancel();
   Motors::stop();
   driveUntil = 0;
@@ -84,7 +90,13 @@ void stopDriving() {
 void driveFor(int left, int right, unsigned long ms = 400) {
   Avoid::stop();
   Follow::stop();
-  if (left > 0 && right > 0) {
+  int direction = (left > 0 && right > 0) ? 1 : (left < 0 && right < 0) ? -1 : 0;
+  if (!Bump::allows(direction)) {  // just hit something this way: refuse
+    stopDriving();
+    return;
+  }
+  Bump::clear();
+  if (direction > 0) {
     if (!Guard::allowForward(speed)) {  // obstacle ahead: refuse
       stopDriving();
       return;
@@ -103,7 +115,7 @@ void driveFor(int left, int right, unsigned long ms = 400) {
 
 // Gyro turn on the spot; positive = left.
 void turnBy(int degrees) {
-  stopAll();
+  stopAll();  // also forgets a bump: turning away is how to get clear
   Guard::clear();
   Steer::turn(degrees, speed);
 }
@@ -264,6 +276,18 @@ void loop() {
     stopDriving();
   }
   Steer::update();
+
+  // Bumps (accelerometer): stop whatever is driving.
+  Bump::Hit hit = Bump::update();
+  if (hit != Bump::Hit::None) {
+    if (Avoid::active()) {
+      Avoid::bumped(hit == Bump::Hit::Front);
+    } else if (Follow::active()) {
+      Follow::stop();
+    } else {
+      stopDriving();
+    }
+  }
 
 #if KIT_VERSION == 4  // only the V4 shield has the push button
   switch (buttonEvent()) {

@@ -27,6 +27,7 @@ unsigned long stateSince = 0;
 unsigned long lastPing = 0;
 int currentSpeed = 0;
 int leftCm = 0, rightCm = 0;
+bool lookAfterBacking = false;  // after a bump: the last look is out of date
 
 Led::Color colorFor(State s) {
   switch (s) {
@@ -108,6 +109,7 @@ void decide() {
     Serial.print(F(" -> boxed in, backing up, then turning "));
     Serial.println(side);
     Motors::drive(-BACK_SPEED, -BACK_SPEED);
+    lookAfterBacking = false;
     enter(State::Backing);
   } else {
     Serial.print(F(" -> turning "));
@@ -142,6 +144,23 @@ void start() {
   Serial.println(F("avoid: ON, starting in 1 s (press button or send o to stop)"));
   Sensors::look(LOOK_AHEAD);
   enter(State::Starting);
+}
+
+void bumped(bool front) {
+  if (!active()) return;
+  currentSpeed = 0;
+  if (!front) {  // backed into something: don't keep reversing
+    Serial.println(F("avoid: bumped something behind -> stop, looking around"));
+    Motors::stop();
+    Sensors::look(LOOK_LEFT);
+    enter(State::LookLeft);
+    return;
+  }
+  Serial.println(F("avoid: bumped into something -> backing up, then looking around"));
+  Sensors::look(LOOK_AHEAD);
+  Motors::drive(-BACK_SPEED, -BACK_SPEED);
+  lookAfterBacking = true;
+  enter(State::Backing);
 }
 
 void stop() {
@@ -189,7 +208,13 @@ void update() {
     case State::Backing:
       if (timeInState() >= BACK_MS) {
         Motors::stop();
-        turnToClearerSide();
+        if (lookAfterBacking) {
+          lookAfterBacking = false;
+          Sensors::look(LOOK_LEFT);
+          enter(State::LookLeft);
+        } else {
+          turnToClearerSide();
+        }
       }
       break;
 

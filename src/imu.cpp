@@ -27,6 +27,18 @@ Chip chip = Chip::None;
 uint8_t addr = 0;
 float countsPerDps = 1;
 float bias = 0;         // raw counts at rest
+
+// Accelerometer, +/-8 g (4096 counts per g on both chips). Only sideways and
+// fore-aft (X, Y) are used, for bumps: each reading minus its slow-moving
+// average (which removes gravity on a slope and the chip's offset).
+constexpr float COUNTS_PER_G = 4096.0f;
+constexpr float ACCEL_BASELINE_FOLLOW = 0.02f;  // ~0.2 s at 250 readings/s
+float baseX = 0, baseY = 0;
+bool haveBase = false;
+float peakX = 0, peakY = 0;  // largest jolt since takeJolt(), in g
+// Fore-aft extremes (+Y = forward on this shield) for the bump detector,
+// since takeSurge(), in g.
+float surgeMin = 0, surgeMax = 0;
 float yaw = 0;          // degrees
 float yawRate = 0;      // degrees per second
 unsigned long lastRead = 0;
@@ -70,6 +82,7 @@ bool initMpu6050() {
   delay(50);
   writeReg(0x1A, 0x03);
   writeReg(0x1B, 0x08);
+  writeReg(0x1C, 0x10);  // accelerometer +/-8 g
   countsPerDps = 65.5f;
   return true;
 }
@@ -77,11 +90,12 @@ bool initMpu6050() {
 bool initQmi8658() {
   writeReg(0x60, 0xB0);  // soft reset
   delay(20);
-  // Register auto-increment, little-endian; gyro +/-512 deg/s at 224 Hz;
-  // gyro on, accelerometer off.
+  // Register auto-increment, little-endian; accelerometer +/-8 g and gyro
+  // +/-512 deg/s at 224 Hz; both on.
   if (!writeReg(0x02, 0x40)) return false;
+  writeReg(0x03, 0x25);
   writeReg(0x04, 0x55);
-  writeReg(0x08, 0x02);
+  writeReg(0x08, 0x03);
   delay(100);  // gyro start-up
   countsPerDps = 64.0f;
   return true;
@@ -129,16 +143,43 @@ bool calibrate() {
   return false;
 }
 
-bool readRaw(int16_t& z) {
-  uint8_t b[2];
+// Gyro Z and accelerometer X, Y in one read.
+bool readAll(int16_t& z, int16_t& ax, int16_t& ay) {
+  uint8_t b[14];
   if (chip == Chip::Mpu6050) {
-    if (!readRegs(0x47, b, 2)) return false;  // GYRO_ZOUT, big-endian
-    z = (int16_t)((b[0] << 8) | b[1]);
+    // ACCEL X Y Z, TEMP, GYRO X Y Z from 0x3B, big-endian
+    if (!readRegs(0x3B, b, 14)) return false;
+    ax = (int16_t)((b[0] << 8) | b[1]);
+    ay = (int16_t)((b[2] << 8) | b[3]);
+    z = (int16_t)((b[12] << 8) | b[13]);
   } else {
-    if (!readRegs(0x3F, b, 2)) return false;  // GZ, little-endian
-    z = (int16_t)((b[1] << 8) | b[0]);
+    // AX AY AZ GX GY GZ from 0x35, little-endian
+    if (!readRegs(0x35, b, 12)) return false;
+    ax = (int16_t)((b[1] << 8) | b[0]);
+    ay = (int16_t)((b[3] << 8) | b[2]);
+    z = (int16_t)((b[11] << 8) | b[10]);
   }
   return true;
+}
+
+bool readRaw(int16_t& z) {
+  int16_t ax, ay;
+  return readAll(z, ax, ay);
+}
+
+void trackJolt(int16_t ax, int16_t ay) {
+  if (!haveBase) {
+    baseX = ax;
+    baseY = ay;
+    haveBase = true;
+  }
+  baseX += (ax - baseX) * ACCEL_BASELINE_FOLLOW;
+  baseY += (ay - baseY) * ACCEL_BASELINE_FOLLOW;
+  float x = (ax - baseX) / COUNTS_PER_G, y = (ay - baseY) / COUNTS_PER_G;
+  if (fabs(x) > fabs(peakX)) peakX = x;
+  if (fabs(y) > fabs(peakY)) peakY = y;
+  surgeMin = min(surgeMin, y);
+  surgeMax = max(surgeMax, y);
 }
 
 // The register that setup wrote last, and its value: if it reads back
@@ -146,7 +187,7 @@ bool readRaw(int16_t& z) {
 bool configIntact() {
   uint8_t v;
   if (chip == Chip::Mpu6050) return readRegs(0x6B, &v, 1) && v == 0x01;
-  return readRegs(0x08, &v, 1) && v == 0x02;
+  return readRegs(0x08, &v, 1) && v == 0x03;
 }
 
 void restart(const __FlashStringHelper* why) {
@@ -222,8 +263,8 @@ void update() {
   unsigned long now = micros();
   unsigned long dt = now - lastRead;
   if (dt < READ_EVERY_US) return;
-  int16_t z;
-  if (!readRaw(z)) {
+  int16_t z, ax, ay;
+  if (!readAll(z, ax, ay)) {
     readErrors++;
     if (++failStreak >= MAX_FAILED_READS) restart(F("reads failing"));
     return;
@@ -243,6 +284,7 @@ void update() {
     }
   }
   lastRead = now;
+  trackJolt(ax, ay);
 
   bool still = Motors::lastLeft() == 0 && Motors::lastRight() == 0;
   float dps = (z - bias) / countsPerDps;
@@ -269,6 +311,18 @@ const __FlashStringHelper* name() {
 }
 
 float heading() { return yaw; }
+
+void takeJolt(float& x, float& y) {
+  x = peakX;
+  y = peakY;
+  peakX = peakY = 0;
+}
+
+void takeSurge(float& lowest, float& highest) {
+  lowest = surgeMin;
+  highest = surgeMax;
+  surgeMin = surgeMax = 0;
+}
 uint16_t errors() { return readErrors; }
 uint16_t restartCount() { return restarts; }
 float rate() { return yawRate; }

@@ -19,6 +19,13 @@ const __FlashStringHelper* name();  // "MPU6050", "QMI8658C" or "none"
 float heading();
 float rate();     // degrees per second, left positive
 
+// Largest sudden sideways / fore-aft acceleration (g, signed, gravity and
+// slow changes removed) since the last call; resets it. For status reports.
+void takeJolt(float& x, float& y);
+// Lowest and highest fore-aft acceleration (g, forward positive) since the
+// last call; resets them. For the bump detector.
+void takeSurge(float& lowest, float& highest);
+
 // Diagnostics: failed reads, and times the chip had to be set up again.
 uint16_t errors();
 uint16_t restartCount();

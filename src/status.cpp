@@ -1,4 +1,5 @@
 #include "status.h"
+#include "bump.h"
 #include "guard.h"
 #include "imu.h"
 #include "led.h"
@@ -40,6 +41,12 @@ void gyroReport() {
   else Serial.print(F("null"));
   Serial.print(F(",\"c\":"));
   Serial.print(Steer::correction());
+  float jx, jy;
+  Imu::takeJolt(jx, jy);
+  Serial.print(F(",\"jx\":"));
+  Serial.print(jx, 2);
+  Serial.print(F(",\"jy\":"));
+  Serial.print(jy, 2);
   Serial.println('}');
 }
 }  // namespace
@@ -105,6 +112,10 @@ void update(const __FlashStringHelper* mode, const __FlashStringHelper* state, i
   Serial.print(F(",\"imuErr\":["));
   Serial.print(Imu::errors()); Serial.print(',');
   Serial.print(Imu::restartCount());
+  Serial.print(']');
+  Serial.print(F(",\"bump\":["));
+  Serial.print(Bump::count()); Serial.print(',');
+  Serial.print(Bump::lastG(), 1);
   Serial.print(']');
   Serial.print(F(",\"steer\":\""));
   Serial.print(Steer::stateName());
