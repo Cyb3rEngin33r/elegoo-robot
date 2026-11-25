@@ -47,7 +47,7 @@ STATUS_TIMEOUT_S = 3.0  # no report for this long: ask for reports again
 LOG_LINES = 200
 # Commands the page may send: drive, stop, speed, modes, camera head, head
 # trim, collision guard.
-ALLOWED_COMMANDS = set("wasdx+-of[]\\<>gqek")
+ALLOWED_COMMANDS = set("wasdx+-of[]\\<>gqeku")
 COMMAND_GAP_S = 0.012  # the car ignores characters that arrive within 5 ms of each other
 WIFI_HOST = "elegoo-car.local"
 WIFI_PORT = 2323

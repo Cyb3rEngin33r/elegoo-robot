@@ -5,6 +5,8 @@
 //            w and s hold a straight line using the gyro
 //   q / e    turn exactly 90 degrees left / right (gyro)
 //   k        straight-line hold on/off (on at power-up)
+//   u        lift stop on/off: motors stop when the car is picked up or
+//            tipped over (on at power-up; turn off for wheels-up bench tests)
 //   x        stop
 //   + / -    change speed
 //   p        ping the ultrasonic sensor
@@ -49,6 +51,7 @@
 #include "guard.h"
 #include "imu.h"
 #include "led.h"
+#include "lift.h"
 #include "motors.h"
 #include "pins.h"
 #include "remote.h"
@@ -67,7 +70,7 @@ unsigned long lastByteAt = 0;
 
 void help() {
   Serial.println(F("Commands: w s a d (drive) x (stop) +/- (speed) p (ping) "
-                   "q e (turn 90) k (straight hold) l (line) [ ] \\ (servo) < > (trim) g (guard) o (avoid) f (follow line) j/J (status on/off) h (help)"));
+                   "q e (turn 90) k (straight hold) u (lift stop) l (line) [ ] \\ (servo) < > (trim) g (guard) o (avoid) f (follow line) j/J (status on/off) h (help)"));
 }
 
 bool modeActive() { return Avoid::active() || Follow::active(); }
@@ -87,9 +90,24 @@ void stopDriving() {
   driveUntil = 0;
 }
 
+// Picked up or tipped over: say so (not on every repeated command).
+bool refuseOffGround() {
+  if (Lift::allowsDriving()) return false;
+  static unsigned long lastSaid = 0;
+  if (!lastSaid || millis() - lastSaid > 2000) {
+    lastSaid = millis();
+    Serial.println(F("lift: off its wheels, not driving (u turns this check off)"));
+  }
+  return true;
+}
+
 void driveFor(int left, int right, unsigned long ms = 400) {
   Avoid::stop();
   Follow::stop();
+  if (refuseOffGround()) {
+    stopDriving();
+    return;
+  }
   int direction = (left > 0 && right > 0) ? 1 : (left < 0 && right < 0) ? -1 : 0;
   if (!Bump::allows(direction)) {  // just hit something this way: refuse
     stopDriving();
@@ -116,6 +134,7 @@ void driveFor(int left, int right, unsigned long ms = 400) {
 // Gyro turn on the spot; positive = left.
 void turnBy(int degrees) {
   stopAll();  // also forgets a bump: turning away is how to get clear
+  if (refuseOffGround()) return;
   Guard::clear();
   Steer::turn(degrees, speed);
 }
@@ -127,6 +146,7 @@ void toggleMode(bool lineFollowing) {
     return;
   }
   stopAll();
+  if (refuseOffGround()) return;
   panAngle = 90;
   if (lineFollowing) Follow::start();
   else Avoid::start();
@@ -210,6 +230,7 @@ void handleCommand(char c) {
     case 'q': turnBy(90); break;
     case 'e': turnBy(-90); break;
     case 'k': Steer::setHoldEnabled(!Steer::holdEnabled()); break;
+    case 'u': Lift::setEnabled(!Lift::enabled()); break;
     case 'o': toggleMode(false); break;
     case 'f': toggleMode(true); break;
     case '+': speed = min(speed + 25, 255); Serial.print(F("speed ")); Serial.println(speed); break;
@@ -276,6 +297,9 @@ void loop() {
     stopDriving();
   }
   Steer::update();
+
+  // Picked up or tipped over: stop everything.
+  if (Lift::update()) stopAll();
 
   // Bumps (accelerometer): stop whatever is driving.
   Bump::Hit hit = Bump::update();

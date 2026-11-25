@@ -2,6 +2,7 @@
 #include "bump.h"
 #include "guard.h"
 #include "imu.h"
+#include "lift.h"
 #include "led.h"
 #include "motors.h"
 #include "pins.h"
@@ -41,6 +42,12 @@ void gyroReport() {
   else Serial.print(F("null"));
   Serial.print(F(",\"c\":"));
   Serial.print(Steer::correction());
+  float pitch, roll;
+  Imu::tilt(pitch, roll);
+  Serial.print(F(",\"tp\":"));
+  Serial.print(pitch, 1);
+  Serial.print(F(",\"tr\":"));
+  Serial.print(roll, 1);
   float jx, jy;
   Imu::takeJolt(jx, jy);
   Serial.print(F(",\"jx\":"));
@@ -117,6 +124,9 @@ void update(const __FlashStringHelper* mode, const __FlashStringHelper* state, i
   Serial.print(Bump::count()); Serial.print(',');
   Serial.print(Bump::lastG(), 1);
   Serial.print(']');
+  Serial.print(F(",\"lift\":\""));
+  Serial.print(Lift::stateName());
+  Serial.print('"');
   Serial.print(F(",\"steer\":\""));
   Serial.print(Steer::stateName());
   Serial.print(F("\""));

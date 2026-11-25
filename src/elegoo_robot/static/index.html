@@ -108,6 +108,17 @@
   .plot .legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid var(--accent); vertical-align: middle; margin-right: 5px; }
   .plot .legend i.dash { border-top: 2px dashed var(--text); }
   .plot .tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tilt-views { display: flex; gap: 12px; justify-content: space-around; flex-wrap: wrap; }
+  .tilt-view { text-align: center; }
+  .tilt-view svg { width: 150px; height: 100px; display: block; }
+  .tilt-view .ground { stroke: var(--line); stroke-width: 2; }
+  .tilt-view .body { fill: var(--accent); }
+  .tilt-view .wheel { fill: var(--text); }
+  .tilt-view .mark { fill: var(--card); }
+  .tilt-view g { transition: transform .15s linear; }
+  .tilt-view .deg { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .lift-state { margin-top: 8px; font-weight: 600; }
+  .lift-state.bad { color: var(--bad); }
   .camera button { font: inherit; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
 </style>
 </head>
@@ -138,9 +149,10 @@
         <div class="row"><span>Trim</span><button data-cmd="<" title="Nudge the head's centre 1° left (saved on the car)">◀ 1°</button><span class="val" id="trimVal">–</span><button data-cmd=">" title="Nudge the head's centre 1° right (saved on the car)">1° ▶</button></div>
         <div class="row"><span>Turn</span><button data-cmd="q" title="Turn exactly 90° left (Ctrl+←)">⟲ 90° left</button><button data-cmd="e" title="Turn exactly 90° right (Ctrl+→)">90° right ⟳</button><span class="val" id="headingVal" title="Heading since power-up (gyro)">–</span></div>
         <div class="row"><span>Straight</span><button data-cmd="k" id="steerBtn" title="Gyro keeps forward and reverse driving in a straight line (K)">–</button><span class="sub" id="steerNote"></span></div>
+        <div class="row"><span>Lift stop</span><button data-cmd="u" id="liftBtn" title="Stop the motors when the car is picked up or tipped over (U). Turn off for wheels-up bench tests.">–</button><span class="sub" id="liftNote"></span></div>
         <div class="row"><span>Guard</span><button data-cmd="g" id="guardBtn" title="Collision guard: stops forward driving before obstacles (G)">–</button><span class="sub" id="guardNote"></span></div>
         <div class="row"><span>Mode</span><button data-cmd="o" id="modeAvoid">Obstacle avoidance</button><button data-cmd="f" id="modeFollow">Line following</button></div>
-        <div class="keys">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>Space</kbd> stop · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> look, <kbd>Shift</kbd>+<kbd>↑</kbd> centre · <kbd>Ctrl</kbd>+<kbd>←</kbd><kbd>→</kbd> turn 90° · <kbd>K</kbd> straight · <kbd>G</kbd> guard</div>
+        <div class="keys">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>Space</kbd> stop · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> look, <kbd>Shift</kbd>+<kbd>↑</kbd> centre · <kbd>Ctrl</kbd>+<kbd>←</kbd><kbd>→</kbd> turn 90° · <kbd>K</kbd> straight · <kbd>U</kbd> lift stop · <kbd>G</kbd> guard</div>
         <div class="sub" id="driveMsg"></div>
       </div>
     </div>
@@ -174,6 +186,30 @@
       </div>
       <div class="sub" id="gyroNote">Up is where the car pointed at power-up. Left turns count up, right turns down.</div>
     </section>
+    <section class="card span2" id="tiltCard">
+      <h2>Tilt</h2>
+      <div class="tilt-views">
+        <div class="tilt-view">
+          <svg viewBox="-75 -55 150 100" role="img" aria-label="Side view: nose up or down">
+            <line class="ground" x1="-75" y1="30" x2="75" y2="30"/>
+            <g id="pitchCar"><rect class="body" x="-45" y="-12" width="90" height="22" rx="5"/>
+              <path class="mark" d="M 30 -6 L 40 -1 L 30 4 Z"/>
+              <circle class="wheel" cx="-28" cy="14" r="11"/><circle class="wheel" cx="28" cy="14" r="11"/></g>
+          </svg>
+          <div class="deg" id="pitchVal">–</div><div class="sub">Pitch (side view, nose right)</div>
+        </div>
+        <div class="tilt-view">
+          <svg viewBox="-75 -55 150 100" role="img" aria-label="Rear view: leaning left or right">
+            <line class="ground" x1="-75" y1="30" x2="75" y2="30"/>
+            <g id="rollCar"><rect class="body" x="-30" y="-18" width="60" height="28" rx="5"/>
+              <rect class="wheel" x="-44" y="0" width="13" height="25" rx="3"/><rect class="wheel" x="31" y="0" width="13" height="25" rx="3"/></g>
+          </svg>
+          <div class="deg" id="rollVal">–</div><div class="sub">Roll (seen from behind)</div>
+        </div>
+      </div>
+      <div class="lift-state" id="liftState">–</div>
+    </section>
+
     <section class="card">
       <h2>Mode</h2>
       <div class="mode-row">
@@ -296,6 +332,11 @@ function render(snap) {
     sb.textContent = sv === "off" ? "Off" : sv === "no gyro" ? "No gyro" : sv === "holding" ? "Holding" : sv === "turning" ? "Turning" : sv ? "On" : "–";
     sb.className = sv === "on" || sv === "holding" || sv === "turning" ? "on" : sv === "no gyro" ? "warn" : "";
     $("steerNote").textContent = st.imu && st.imu !== "none" ? st.imu : sv ? "gyro not found" : "";
+    const lf = st.lift, lb = $("liftBtn");
+    lb.textContent = lf === "off" ? "Off" : lf === "lifted" ? "Picked up!" : lf === "tipped" ? "Tipped over!" : lf ? "On" : "–";
+    lb.className = lf === "ground" ? "on" : lf === "lifted" || lf === "tipped" ? "blocked" : "";
+    $("liftNote").textContent = lf === "lifted" || lf === "tipped" ? "motors off until it's back on its wheels"
+      : lf === "off" ? "wheels can spin in the air" : "";
     $("modeAvoid").classList.toggle("on", st.mode === "avoid");
     $("modeFollow").classList.toggle("on", st.mode === "follow");
   }
@@ -369,11 +410,28 @@ function addGyro(gy) {
   while (history.length && history[0].t < cutoff) history.shift();
 }
 
+const LIFT_TEXT = { ground: "On its wheels", lifted: "Picked up: motors off", tipped: "Tipped over: motors off", off: "Lift stop is off" };
+function renderTilt(gy, st) {
+  if (gy.tp == null) return;
+  // Side view, nose to the right: nose up turns it anticlockwise.
+  $("pitchCar").style.transform = `rotate(${-gy.tp}deg)`;
+  // From behind, the car's right is on the right: right side down is clockwise.
+  $("rollCar").style.transform = `rotate(${gy.tr}deg)`;
+  const fmt = (v, pos, neg) => Math.abs(v) < 1 ? "level" : `${Math.abs(v).toFixed(0)}° ${v > 0 ? pos : neg}`;
+  $("pitchVal").textContent = fmt(gy.tp, "nose up", "nose down");
+  $("rollVal").textContent = fmt(gy.tr, "right down", "left down");
+  const lf = st && st.lift, ls = $("liftState");
+  ls.textContent = LIFT_TEXT[lf] || "";
+  ls.className = "lift-state" + (lf === "lifted" || lf === "tipped" ? " bad" : "");
+}
+
 function renderGyro(snap) {
   const gy = snap.gyro, st = snap.status;
   const missing = st && st.imu === "none";
   $("gyroCard").hidden = !!missing;
+  $("tiltCard").hidden = !!missing;
   if (!gy) return;
+  renderTilt(gy, st);
   addGyro(gy);
   // Unwrapped, so the needle turns the short way across 180.
   $("needle").style.transform = `rotate(${-unwrapped}deg)`;
@@ -611,7 +669,7 @@ document.querySelectorAll("#drive [data-cmd]").forEach((b) => {
 
 // Keyboard.
 const HOLD_KEYS = { w: "w", arrowup: "w", s: "s", arrowdown: "s", a: "a", arrowleft: "a", d: "d", arrowright: "d" };
-const KEY_CMDS = { "+": "+", "=": "+", "-": "-", "_": "-", "[": "[", "]": "]", "\\": "\\", g: "g", G: "g", k: "k", K: "k" };
+const KEY_CMDS = { "+": "+", "=": "+", "-": "-", "_": "-", "[": "[", "]": "]", "\\": "\\", g: "g", G: "g", k: "k", K: "k", u: "u", U: "u" };
 // Ctrl + left/right: exact 90-degree turns (gyro).
 const TURN_KEYS = { arrowleft: "q", arrowright: "e" };
 const keyBtn = (cmd) => document.querySelector(`#drive [data-hold="${cmd}"]`);

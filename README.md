@@ -16,6 +16,7 @@ src/guard.cpp       collision guard for manual driving
 src/imu.cpp         gyro on the shield (MPU6050 or QMI8658C): heading
 src/steer.cpp       gyro straight-line driving and exact turns (tuning at the top)
 src/bump.cpp        bump detection with the gyro chip's accelerometer
+src/lift.cpp        picked-up / tipped-over protection
 src/follow.cpp      line following (thresholds and speeds at the top)
 src/led.cpp         status LED (V4 shield RGB LED)
 src/remote.cpp      IR remote (button codes at the top)
@@ -48,7 +49,7 @@ Turn the car's battery switch on for the motors to run (USB alone won't power th
 On V4.0 kits, set the shield's upload switch to the upload position while flashing
 (it disconnects the camera module from RX/TX), then switch it back to "Cam".
 
-Console commands: `w s a d` drive, `x` stop, `q e` turn exactly 90° left/right, `k` straight-line hold on/off, `+ -` speed, `p` ping,
+Console commands: `w s a d` drive, `x` stop, `q e` turn exactly 90° left/right, `k` straight-line hold on/off, `u` lift stop on/off, `+ -` speed, `p` ping,
 `l` line sensors, `[ ] \` servo, `< >` servo centre trim (1° left/right, saved in EEPROM), `g` collision guard on/off, `o` obstacle avoidance on/off, `f` line following on/off, `j`/`J` status reports on/off, `h` help.
 Only isolated characters count as commands: a character is acted on once the
 line has been quiet for 5 ms before and after it, so bursts of text (like the
@@ -139,6 +140,20 @@ it and the Details panel counts bumps. Very soft obstacles (a cushion) may
 not jolt hard enough; the threshold is `BUMP_G` in `src/bump.cpp`. The gyro
 report's `jx`/`jy` show the biggest jolt in each 0.1 s, for tuning.
 
+## Tilt, picked up, tipped over
+
+The accelerometer also measures gravity, averaged over ~0.4 s so starting
+and braking mostly cancel out. That gives **tilt**: pitch (nose up/down)
+and roll (leaning left/right), shown on the dashboard's Tilt card.
+
+**Lift stop** (on at power-up) stops the motors when the car is
+**picked up** (all three line sensors see nothing below for 0.15 s) or
+**tipped over** (more than 50° of tilt, or upside down, for 0.5 s), and
+refuses drives, turns and modes until it has been back on its wheels for
+0.5 s. For wheels-up bench tests in the air, turn it off with `u` (dashboard
+**Lift stop** button or `U`). A car standing on a box with its wheels free
+still counts as on the ground.
+
 A flat or switched-off battery shows up as stalls: on USB power alone the
 motors get about 2 V and the UNO can reset. Check `batt` (7-8.4 V is good).
 
@@ -198,6 +213,7 @@ Then open http://127.0.0.1:8000.
 | Trim ◀ 1° / 1° ▶ | | nudge the head's centre (saved on the car) |
 | Turn ⟲ 90° / 90° ⟳ | `Ctrl`+`←` `→` | exact 90° turn (gyro); shows the heading |
 | Straight | `K` | gyro straight-line hold on/off |
+| Lift stop | `U` | stop the motors when picked up or tipped over |
 | Guard | `G` | collision guard on/off (see below) |
 | Obstacle avoidance / Line following | | start / stop a mode (green while running) |
 

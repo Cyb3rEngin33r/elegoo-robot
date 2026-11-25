@@ -26,6 +26,11 @@ void takeJolt(float& x, float& y);
 // last call; resets them. For the bump detector.
 void takeSurge(float& lowest, float& highest);
 
+// Tilt in degrees, averaged over ~0.4 s: pitch nose up positive, roll right
+// side down positive. And whether the car is upside down.
+void tilt(float& pitch, float& roll);
+bool upsideDown();
+
 // Diagnostics: failed reads, and times the chip had to be set up again.
 uint16_t errors();
 uint16_t restartCount();

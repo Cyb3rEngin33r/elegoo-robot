@@ -39,6 +39,12 @@ float peakX = 0, peakY = 0;  // largest jolt since takeJolt(), in g
 // Fore-aft extremes (+Y = forward on this shield) for the bump detector,
 // since takeSurge(), in g.
 float surgeMin = 0, surgeMax = 0;
+
+// Gravity, for tilt: each axis averaged over ~0.4 s, so the push of
+// starting and braking mostly averages out. Axes: X right, Y forward, Z up.
+constexpr float GRAVITY_FOLLOW = 0.01f;
+float gravX = 0, gravY = 0, gravZ = COUNTS_PER_G;
+bool haveGravity = false;
 float yaw = 0;          // degrees
 float yawRate = 0;      // degrees per second
 unsigned long lastRead = 0;
@@ -144,27 +150,41 @@ bool calibrate() {
 }
 
 // Gyro Z and accelerometer X, Y in one read.
-bool readAll(int16_t& z, int16_t& ax, int16_t& ay) {
+bool readAll(int16_t& z, int16_t& ax, int16_t& ay, int16_t& az) {
   uint8_t b[14];
   if (chip == Chip::Mpu6050) {
     // ACCEL X Y Z, TEMP, GYRO X Y Z from 0x3B, big-endian
     if (!readRegs(0x3B, b, 14)) return false;
     ax = (int16_t)((b[0] << 8) | b[1]);
     ay = (int16_t)((b[2] << 8) | b[3]);
+    az = (int16_t)((b[4] << 8) | b[5]);
     z = (int16_t)((b[12] << 8) | b[13]);
   } else {
     // AX AY AZ GX GY GZ from 0x35, little-endian
     if (!readRegs(0x35, b, 12)) return false;
     ax = (int16_t)((b[1] << 8) | b[0]);
     ay = (int16_t)((b[3] << 8) | b[2]);
+    az = (int16_t)((b[5] << 8) | b[4]);
     z = (int16_t)((b[11] << 8) | b[10]);
   }
   return true;
 }
 
 bool readRaw(int16_t& z) {
-  int16_t ax, ay;
-  return readAll(z, ax, ay);
+  int16_t ax, ay, az;
+  return readAll(z, ax, ay, az);
+}
+
+void trackGravity(int16_t ax, int16_t ay, int16_t az) {
+  if (!haveGravity) {
+    gravX = ax;
+    gravY = ay;
+    gravZ = az;
+    haveGravity = true;
+  }
+  gravX += (ax - gravX) * GRAVITY_FOLLOW;
+  gravY += (ay - gravY) * GRAVITY_FOLLOW;
+  gravZ += (az - gravZ) * GRAVITY_FOLLOW;
 }
 
 void trackJolt(int16_t ax, int16_t ay) {
@@ -263,8 +283,8 @@ void update() {
   unsigned long now = micros();
   unsigned long dt = now - lastRead;
   if (dt < READ_EVERY_US) return;
-  int16_t z, ax, ay;
-  if (!readAll(z, ax, ay)) {
+  int16_t z, ax, ay, az;
+  if (!readAll(z, ax, ay, az)) {
     readErrors++;
     if (++failStreak >= MAX_FAILED_READS) restart(F("reads failing"));
     return;
@@ -285,6 +305,7 @@ void update() {
   }
   lastRead = now;
   trackJolt(ax, ay);
+  trackGravity(ax, ay, az);
 
   bool still = Motors::lastLeft() == 0 && Motors::lastRight() == 0;
   float dps = (z - bias) / countsPerDps;
@@ -317,6 +338,14 @@ void takeJolt(float& x, float& y) {
   y = peakY;
   peakX = peakY = 0;
 }
+
+void tilt(float& pitch, float& roll) {
+  // Nose up: gravity shows on +Y. Right side down: on -X.
+  pitch = atan2(gravY, sqrt(gravX * gravX + gravZ * gravZ)) * RAD_TO_DEG;
+  roll = atan2(-gravX, gravZ) * RAD_TO_DEG;
+}
+
+bool upsideDown() { return gravZ < 0; }
 
 void takeSurge(float& lowest, float& highest) {
   lowest = surgeMin;
