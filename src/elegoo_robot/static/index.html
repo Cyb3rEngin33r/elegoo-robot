@@ -68,6 +68,13 @@
   .camera img { display: block; width: 100%; height: 100%; object-fit: contain; }
   .camera .msg { position: absolute; inset: 0; display: grid; place-items: center; color: #c9ced8; font-size: 14px; text-align: center; padding: 16px; }
   .camera .msg[hidden] { display: none; }  /* display: grid above would override [hidden] */
+  .camera .boxes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .camera .boxes rect { fill: none; stroke: #ffffff; stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .camera .boxes rect.target { stroke: #3ccf7a; stroke-width: 3; }
+  .camera .boxes text { fill: #ffffff; font: 600 14px system-ui, sans-serif; paint-order: stroke; stroke: #000; stroke-width: 3px; }
+  .camera .bar-row .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .camera button.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .vision-line { font-size: 13px; color: var(--muted); margin-top: 6px; min-height: 1.4em; }
   .camera .bar-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
   .drive { margin-bottom: 12px; }
   .drive-grid { display: grid; grid-template-columns: auto 1fr; gap: 16px 24px; align-items: center; }
@@ -131,8 +138,12 @@
 
   <section class="card camera" id="cameraCard" hidden>
     <h2>Camera</h2>
-    <div class="frame"><img id="cam" alt="Live video from the car"><div class="msg" id="camMsg">Connecting to the camera…</div></div>
-    <div class="bar-row"><span id="camInfo"></span><button id="camToggle" type="button">Pause video</button></div>
+    <div class="frame"><img id="cam" alt="Live video from the car"><svg class="boxes" id="boxes" aria-hidden="true"></svg><div class="msg" id="camMsg">Connecting to the camera…</div></div>
+    <div class="bar-row"><span id="camInfo"></span><span class="btns">
+      <button id="detectBtn" type="button" hidden title="Look for people in the video and outline them">Show people</button>
+      <button id="followBtn" type="button" hidden title="Turn toward the nearest person and follow them, stopping about 1 m away (P). Any drive key takes over.">Follow person</button>
+      <button id="camToggle" type="button">Pause video</button></span></div>
+    <div class="vision-line" id="visionLine"></div>
   </section>
 
   <section class="card drive" id="drive" aria-disabled="true">
@@ -152,7 +163,7 @@
         <div class="row"><span>Lift stop</span><button data-cmd="u" id="liftBtn" title="Stop the motors when the car is picked up or tipped over (U). Turn off for wheels-up bench tests.">–</button><span class="sub" id="liftNote"></span></div>
         <div class="row"><span>Guard</span><button data-cmd="g" id="guardBtn" title="Collision guard: stops forward driving before obstacles (G)">–</button><span class="sub" id="guardNote"></span></div>
         <div class="row"><span>Mode</span><button data-cmd="o" id="modeAvoid">Obstacle avoidance</button><button data-cmd="f" id="modeFollow">Line following</button></div>
-        <div class="keys">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>Space</kbd> stop · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> look, <kbd>Shift</kbd>+<kbd>↑</kbd> centre · <kbd>Ctrl</kbd>+<kbd>←</kbd><kbd>→</kbd> turn 90° · <kbd>K</kbd> straight · <kbd>U</kbd> lift stop · <kbd>G</kbd> guard</div>
+        <div class="keys">Hold <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>Space</kbd> stop · <kbd>+</kbd><kbd>−</kbd> speed · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> look, <kbd>Shift</kbd>+<kbd>↑</kbd> centre · <kbd>Ctrl</kbd>+<kbd>←</kbd><kbd>→</kbd> turn 90° · <kbd>K</kbd> straight · <kbd>U</kbd> lift stop · <kbd>G</kbd> guard · <kbd>P</kbd> follow person</div>
         <div class="sub" id="driveMsg"></div>
       </div>
     </div>
@@ -570,6 +581,7 @@ function connect() {
     const snap = JSON.parse(ev.data);
     render(snap);
     renderGyro(snap);
+    renderVision(snap.vision);
     addLog(snap.log);
   };
   es.onerror = () => {
@@ -582,13 +594,14 @@ connect();
 // Camera: the browser loads the MJPEG stream straight from the car. The car
 // serves one viewer at a time, so pausing frees it for another tab or device.
 async function setupCamera() {
-  let url = null;
-  try { url = (await (await fetch("/config")).json()).camera; } catch (e) { /* no camera */ }
+  let url = null, cfg = {};
+  try { cfg = await (await fetch("/config")).json(); url = cfg.camera; } catch (e) { /* no camera */ }
   if (!url) return;
   const card = $("cameraCard"), img = $("cam"), msg = $("camMsg"), btn = $("camToggle");
   card.hidden = false;
   card.style.marginBottom = "12px";
-  $("camInfo").textContent = url;
+  $("camInfo").textContent = "Live from the car's camera";
+  if (cfg.vision) { $("detectBtn").hidden = false; $("followBtn").hidden = false; }
   let playing = true, retry = null, settle = null;
   const start = () => {
     clearTimeout(retry);
@@ -613,7 +626,7 @@ async function setupCamera() {
   setInterval(() => { if (playing && img.naturalWidth > 0) msg.hidden = true; }, 500);
   img.onerror = () => {
     if (!playing) return;
-    stop("Camera not reachable. Is the car on? (Only one viewer at a time.) Retrying…");
+    stop("Camera not reachable. Is the car on? Retrying…");
     retry = setTimeout(start, 3000);
   };
   btn.onclick = () => {
@@ -624,6 +637,50 @@ async function setupCamera() {
   start();
 }
 setupCamera();
+
+// ---- People (vision on the laptop) ----
+let vis = null;
+async function setVision(body) {
+  try {
+    const r = await fetch("/vision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) $("visionLine").textContent = `Not done: ${(await r.json().catch(() => ({}))).error || r.status}`;
+  } catch (e) { $("visionLine").textContent = "Not done: dashboard server not reachable"; }
+}
+$("detectBtn").onclick = () => setVision({ detect: !(vis && vis.detecting) });
+$("followBtn").onclick = () => setVision({ follow: !(vis && vis.following) });
+
+function renderVision(v) {
+  vis = v;
+  if (!v) return;
+  $("detectBtn").classList.toggle("on", v.detecting);
+  $("detectBtn").textContent = v.detecting ? "Showing people" : "Show people";
+  $("followBtn").classList.toggle("on", v.following);
+  $("followBtn").textContent = v.following ? "Following: stop" : "Follow person";
+  const svg = $("boxes"), ns = "http://www.w3.org/2000/svg";
+  svg.replaceChildren();
+  if (v.detecting && v.size) {
+    svg.setAttribute("viewBox", `0 0 ${v.size[0]} ${v.size[1]}`);
+    v.persons.forEach((p, i) => {
+      const r = document.createElementNS(ns, "rect");
+      r.setAttribute("x", p[0]); r.setAttribute("y", p[1]); r.setAttribute("width", p[2]); r.setAttribute("height", p[3]);
+      const isTarget = v.following && i === v.target;
+      if (isTarget) r.setAttribute("class", "target");
+      const t = document.createElementNS(ns, "text");
+      t.setAttribute("x", p[0] + 4); t.setAttribute("y", Math.max(p[1] + 18, 18));
+      t.textContent = `${isTarget ? "following · " : ""}${Math.round(p[4] * 100)}%`;
+      svg.append(r, t);
+    });
+  }
+  let line = "";
+  if (v.error) line = v.error;
+  else if (!v.model) line = "Person detector not downloaded: run car-dashboard --get-model";
+  else if (v.detecting) {
+    const n = v.persons.length;
+    line = `${n === 0 ? "No people" : n === 1 ? "1 person" : `${n} people`} · ${v.fps ? `${v.fps} frames/s` : "starting…"}`;
+    if (v.action) line += ` · ${v.action}`;
+  } else if (v.action) line = v.action;
+  $("visionLine").textContent = line;
+}
 
 // ---- Driving ----
 // Drive commands last 0.4 s on the car, so a held control repeats every
@@ -707,6 +764,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (HOLD_KEYS[k]) { e.preventDefault(); if (!e.repeat) startHold(HOLD_KEYS[k], keyBtn(HOLD_KEYS[k])); return; }
+  if ((k === "p") && !e.repeat && vis) { e.preventDefault(); setVision({ follow: !vis.following }); return; }
   if (KEY_CMDS[e.key] && !e.repeat) { e.preventDefault(); sendCmd(KEY_CMDS[e.key]); }
 });
 document.addEventListener("keyup", (e) => {

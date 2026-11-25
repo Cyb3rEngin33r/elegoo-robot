@@ -8,8 +8,12 @@ that shows them live. Run with:
     car-dashboard --wifi           # over Wi-Fi via the camera module (elegoo-car.local)
     car-dashboard --wifi 192.168.1.50
 
-Over Wi-Fi the page also shows the camera's live video, which the browser
-loads straight from the car (http://<car>:81/stream).
+Over Wi-Fi the page also shows the camera's live video. The camera serves
+one viewer at a time, so the dashboard reads its stream and re-serves it
+(/camera), and can look for people in it and follow one (see vision.py).
+The person detector is downloaded once with:
+
+    car-dashboard --get-model
 
 The page can also drive the car (POST /command). Only the page itself can
 send commands: requests must be JSON from the dashboard's own origin.
@@ -26,10 +30,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import socket
 import threading
 import time
 from collections import deque
 from importlib import resources
+
+from pathlib import Path
 
 import serial
 import serial.tools.list_ports
@@ -40,6 +47,8 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
+from .camera import CameraRelay
+
 BAUD = 115200
 CH340_VID = 0x1A86  # USB-serial chip on the Elegoo UNO board
 BOOT_WAIT_S = 2.5  # the board restarts when the port opens
@@ -48,6 +57,8 @@ LOG_LINES = 200
 # Commands the page may send: drive, stop, speed, modes, camera head, head
 # trim, collision guard.
 ALLOWED_COMMANDS = set("wasdx+-of[]\\<>gqeku")
+# Commands that move the car: these take over from person following.
+DRIVE_COMMANDS = set("wasdxqeof")
 COMMAND_GAP_S = 0.012  # the car ignores characters that arrive within 5 ms of each other
 WIFI_HOST = "elegoo-car.local"
 WIFI_PORT = 2323
@@ -75,6 +86,7 @@ class CarLink:
         self.connected = False
         self.status: dict | None = None
         self.status_time = 0.0
+        self.page_seen = 0.0  # last time a dashboard page was connected
         # Short gyro reports, 10 a second (see include/status.h).
         self.gyro: dict | None = None
         self.gyro_seq = 0
@@ -140,6 +152,12 @@ class CarLink:
         # `port` is a device (/dev/ttyUSB1) or a pyserial URL (socket://host:port).
         over_wifi = port.startswith("socket://")
         with serial.serial_for_url(port, BAUD, timeout=0.2) as ser:
+            sock = getattr(ser, "_socket", None)
+            if sock is not None:
+                # Send each character at once: commands like "L15" must reach
+                # the car within 200 ms, and TCP would otherwise hold back
+                # small writes while it waits for an acknowledgement.
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self.ser = ser
             try:
                 self._run_session(ser, port, over_wifi)
@@ -206,7 +224,19 @@ class CarLink:
             }
 
 
-def create_app(link: CarLink, camera_url: str | None = None) -> Starlette:
+def same_origin_json(request: Request) -> JSONResponse | None:
+    """Only the dashboard's own page may control the car. Requiring JSON makes
+    browsers preflight cross-site requests (which we don't allow), and the
+    Origin check rejects any other site outright."""
+    origin = request.headers.get("origin")
+    if origin is not None and origin != f"http://{request.headers.get('host')}":
+        return JSONResponse({"ok": False, "error": "forbidden origin"}, status_code=403)
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        return JSONResponse({"ok": False, "error": "expected JSON"}, status_code=415)
+    return None
+
+
+def create_app(link: CarLink, relay: CameraRelay | None = None, vision=None) -> Starlette:
     page = resources.files("elegoo_robot").joinpath("static/index.html").read_text()
 
     async def index(request: Request) -> HTMLResponse:
@@ -218,7 +248,11 @@ def create_app(link: CarLink, camera_url: str | None = None) -> Starlette:
             last_seq = 0
             last_sent = 0.0
             while not await request.is_disconnected():
+                link.page_seen = time.time()
                 version, snap = link.snapshot(last_seq)
+                if vision is not None:
+                    snap["vision"] = vision.snapshot()
+                    version = (version, vision.version)
                 # Send on every change, and at least once a second so the
                 # page can show how old the last report is.
                 if version != last_version or time.time() - last_sent >= 1.0:
@@ -236,23 +270,60 @@ def create_app(link: CarLink, camera_url: str | None = None) -> Starlette:
         )
 
     async def config(request: Request) -> JSONResponse:
-        return JSONResponse({"camera": camera_url})
+        return JSONResponse({"camera": "/camera" if relay else None, "vision": vision is not None})
+
+    async def camera(request: Request) -> StreamingResponse:
+        # The car's JPEGs, re-served as MJPEG to any number of pages.
+        async def frames():
+            seq = 0
+            while not await request.is_disconnected():
+                relay.want()
+                new_seq, jpeg, _ = relay.latest()
+                if jpeg is None or new_seq == seq:
+                    await asyncio.sleep(0.02)
+                    continue
+                seq = new_seq
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                       + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
+
+        if relay is None:
+            return JSONResponse({"error": "no camera"}, status_code=404)
+        return StreamingResponse(
+            frames(), media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def vision_control(request: Request) -> JSONResponse:
+        if (bad := same_origin_json(request)) is not None:
+            return bad
+        if vision is None:
+            return JSONResponse({"ok": False, "error": "no camera"}, status_code=404)
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            body = None
+        if not isinstance(body, dict):
+            return JSONResponse({"ok": False, "error": "expected an object"}, status_code=400)
+        if isinstance(body.get("detect"), bool):
+            vision.set_detecting(body["detect"])
+        if isinstance(body.get("follow"), bool):
+            if body["follow"] and not link.connected:
+                return JSONResponse({"ok": False, "error": "car not connected"}, status_code=503)
+            if (err := vision.set_following(body["follow"])) is not None:
+                return JSONResponse({"ok": False, "error": err}, status_code=409)
+        return JSONResponse({"ok": True})
 
     async def command(request: Request) -> JSONResponse:
-        # Only the dashboard's own page may drive the car. Requiring JSON makes
-        # browsers preflight cross-site requests (which we don't allow), and
-        # the Origin check rejects any other site outright.
-        origin = request.headers.get("origin")
-        if origin is not None and origin != f"http://{request.headers.get('host')}":
-            return JSONResponse({"ok": False, "error": "forbidden origin"}, status_code=403)
-        if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
-            return JSONResponse({"ok": False, "error": "expected JSON"}, status_code=415)
+        if (bad := same_origin_json(request)) is not None:
+            return bad
         try:
             cmd = (await request.json()).get("cmd")
         except (json.JSONDecodeError, AttributeError):
             cmd = None
         if not isinstance(cmd, str) or len(cmd) != 1 or cmd not in ALLOWED_COMMANDS:
             return JSONResponse({"ok": False, "error": "unknown command"}, status_code=400)
+        if vision is not None and cmd in DRIVE_COMMANDS:
+            vision.manual_override()
         if not await run_in_threadpool(link.send, cmd.encode()):
             return JSONResponse({"ok": False, "error": "car not connected"}, status_code=503)
         return JSONResponse({"ok": True})
@@ -262,6 +333,8 @@ def create_app(link: CarLink, camera_url: str | None = None) -> Starlette:
         Route("/events", events),
         Route("/config", config),
         Route("/command", command, methods=["POST"]),
+        Route("/camera", camera),
+        Route("/vision", vision_control, methods=["POST"]),
     ])
 
 
@@ -277,9 +350,15 @@ def main() -> None:
         "--camera", metavar="URL",
         help="camera stream URL (default with --wifi: http://HOST:81/stream; 'none' to hide)",
     )
+    parser.add_argument("--model", type=Path, help="person detector (default: models/yolox_s.onnx)")
+    parser.add_argument("--get-model", action="store_true", help="download the person detector and exit")
     parser.add_argument("--host", default="127.0.0.1", help="web server address (default: 127.0.0.1)")
     parser.add_argument("--http-port", type=int, default=8000, help="web server port (default: 8000)")
     args = parser.parse_args()
+    if args.get_model:
+        from .vision import DEFAULT_MODEL, download_model
+        print(f"Saved {download_model(args.model or DEFAULT_MODEL)}")
+        return
 
     port = f"socket://{args.wifi}:{WIFI_PORT}" if args.wifi else args.port
     camera_url = args.camera or (CAMERA_STREAM.format(host=args.wifi) if args.wifi else None)
@@ -287,8 +366,17 @@ def main() -> None:
         camera_url = None
     link = CarLink(port)
     link.start()
+    relay = vision = None
+    if camera_url:
+        relay = CameraRelay(camera_url)
+        relay.start()
+        from .vision import DEFAULT_MODEL, Vision
+        vision = Vision(relay, link, args.model or DEFAULT_MODEL)
+        vision.start()
     print(f"Dashboard: http://{args.host}:{args.http_port}")
-    uvicorn.run(create_app(link, camera_url), host=args.host, port=args.http_port, log_level="warning")
+    # Open pages keep their live streams open; don't wait for them on Ctrl+C.
+    uvicorn.run(create_app(link, relay, vision), host=args.host, port=args.http_port,
+                log_level="warning", timeout_graceful_shutdown=2)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,11 @@
 //            w and s hold a straight line using the gyro
 //   q / e    turn exactly 90 degrees left / right (gyro)
 //   k        straight-line hold on/off (on at power-up)
+//   M L R    drive with left / right speed levels for 400 ms, for programs
+//            such as the dashboard's person follower: L and R are digits
+//            0-8 = -200 -150 -110 -80 0 80 110 150 200 (e.g. M77 forward,
+//            M67 gentle left arc, M26 spin left)
+//   L N N    turn exactly NN degrees left (gyro), e.g. L15; R N N: right
 //   u        lift stop on/off: motors stop when the car is picked up or
 //            tipped over (on at power-up; turn off for wheels-up bench tests)
 //   x        stop
@@ -234,8 +239,52 @@ void handleRemote() {
   }
 }
 
+// Two-digit commands (see the top of the file): "M" + left and right speed
+// levels, "L" / "R" + degrees to turn.
+constexpr int LEVELS[] = {-200, -150, -110, -80, 0, 80, 110, 150, 200};
+constexpr unsigned long ARGS_MS = 200;  // both digits must follow within this
+char argCommand = 0;                    // command waiting for digits, 0 = none
+int8_t argCount = 0;
+int8_t firstDigit = 0;
+unsigned long argStarted = 0;
+
+void runArgCommand(char cmd, int a, int b) {
+  if (cmd == 'M') {
+    if (a <= 8 && b <= 8) driveFor(LEVELS[a], LEVELS[b]);
+  } else {
+    int degrees = a * 10 + b;
+    if (degrees) turnBy(cmd == 'L' ? degrees : -degrees);
+  }
+}
+
+// True if `c` was a digit for a pending two-digit command.
+bool argDigit(char c) {
+  if (!argCommand) return false;
+  if (c < '0' || c > '9' || millis() - argStarted > ARGS_MS) {
+    argCommand = 0;  // malformed: drop it, and treat c as a normal command
+    return false;
+  }
+  if (argCount == 0) {
+    firstDigit = c - '0';
+    argCount = 1;
+  } else {
+    char cmd = argCommand;
+    argCommand = 0;
+    runArgCommand(cmd, firstDigit, c - '0');
+  }
+  return true;
+}
+
 void handleCommand(char c) {
+  if (argDigit(c)) return;
   switch (c) {
+    case 'M':
+    case 'L':
+    case 'R':
+      argCommand = c;
+      argCount = 0;
+      argStarted = millis();
+      break;
     case 'w': driveFor(speed, speed); break;
     case 's': driveFor(-speed, -speed); break;
     case 'a': driveFor(-speed, speed); break;

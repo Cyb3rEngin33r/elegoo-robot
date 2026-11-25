@@ -22,7 +22,7 @@ src/follow.cpp      line following (thresholds and speeds at the top)
 src/led.cpp         status LED (V4 shield RGB LED)
 src/remote.cpp      IR remote (button codes at the top)
 src/status.cpp      JSON status reports for the dashboard
-src/elegoo_robot/   Python status dashboard (car-dashboard)
+src/elegoo_robot/   Python status dashboard (car-dashboard), camera relay, person following
 src/main.cpp        serial test console
 esp32/              camera module (ESP32-S3) firmware: Wi-Fi serial bridge + video
 .githooks/          pre-commit hook that blocks Wi-Fi credentials
@@ -50,7 +50,8 @@ Turn the car's battery switch on for the motors to run (USB alone won't power th
 On V4.0 kits, set the shield's upload switch to the upload position while flashing
 (it disconnects the camera module from RX/TX), then switch it back to "Cam".
 
-Console commands: `w s a d` drive, `x` stop, `q e` turn exactly 90° left/right, `k` straight-line hold on/off, `u` lift stop on/off, `+ -` speed, `p` ping,
+Console commands (two-digit ones are for programs like the person follower:
+`M` + two speed levels 0-8, e.g. `M77` forward; `L`/`R` + degrees, e.g. `L15`): `w s a d` drive, `x` stop, `q e` turn exactly 90° left/right, `k` straight-line hold on/off, `u` lift stop on/off, `+ -` speed, `p` ping,
 `l` line sensors, `[ ] \` servo, `< >` servo centre trim (1° left/right, saved in EEPROM), `g` collision guard on/off, `o` obstacle avoidance on/off, `f` line following on/off, `j`/`J` status reports on/off, `h` help.
 Only isolated characters count as commands: a character is acted on once the
 line has been quiet for 5 ms before and after it, so bursts of text (like the
@@ -299,7 +300,7 @@ pin numbers were read from Elegoo's original firmware; see
 
 | URL | |
 |---|---|
-| `http://192.168.68.20:81/stream` | MJPEG live video, 640x480, ~24 fps |
+| `http://192.168.68.20:81/stream` | MJPEG live video, 640x480 (one viewer at a time; the dashboard relays it as `/camera`) |
 | `http://192.168.68.20/capture` | one JPEG |
 | `http://192.168.68.20/control?framesize=svga&quality=10` | change size (`qvga` `vga` `svga` `xga` `hd`), JPEG quality (4-63, lower is better), `vflip`, `hmirror` (0/1) |
 
@@ -312,6 +313,44 @@ git, SHA-256 alongside). To restore it, put the module in download mode and run:
 ~/.platformio/packages/tool-esptool/esptool --port /dev/ttyACM0 \
   write-flash 0 esp32/backup/elegoo-original-esp32s3-8MB.bin
 ```
+
+## Following a person (vision on the laptop)
+
+The dashboard can find people in the camera's video and follow one. The
+laptop does the work: a small neural network (YOLOX-S from the OpenCV model
+zoo) runs at ~12-15 frames/s on a laptop CPU. Download it once (36 MB,
+checksum-verified, saved in `models/`, which isn't in git):
+
+```bash
+.venv/bin/car-dashboard --get-model
+```
+
+Under the video, **Show people** outlines everyone it finds; **Follow person**
+(or `P`) follows the nearest one: it turns to face them, drives toward them
+and stops about 1 m away, then follows again when they move off. Space, any
+drive key or the button stops it; it also stops if it loses the person for
+a second or no dashboard page is open. The car's collision guard, bump,
+lift and battery protection apply throughout.
+
+How it steers, and why:
+
+- The camera serves one viewer, so the dashboard reads the stream once
+  (`src/elegoo_robot/camera.py`) and shares it with the page and the
+  detector.
+- While detecting, the camera drops to 320x240: at 640x480 the Wi-Fi link
+  gave ~7 frames/s and delays up to a second; at 320x240 it's ~20 frames/s
+  and under 0.1 s.
+- The car spins fast (a 0.4 s spin turns it 50-100 degrees), so "spin until
+  centred" overshoots. Instead the laptop converts the person's position to
+  an angle (the lens is wide: ~125 degrees across, measured) and the car
+  turns exactly that far with its gyro (`L`/`R` + degrees), then the laptop
+  waits for video taken after the turn. Between turns it drives straight
+  with the gyro holding its heading (`M77`).
+- Close enough is under 1 m by the ultrasonic sensor, or the person's box
+  wider than a third of the frame (the sound can miss legs). At 60 cm a
+  person fills the wide-angle frame and is only found half the time.
+
+Tuning is at the top of `src/elegoo_robot/vision.py`.
 
 ## Ideas for next steps
 
