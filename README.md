@@ -17,6 +17,7 @@ src/imu.cpp         gyro on the shield (MPU6050 or QMI8658C): heading
 src/steer.cpp       gyro straight-line driving and exact turns (tuning at the top)
 src/bump.cpp        bump detection with the gyro chip's accelerometer
 src/lift.cpp        picked-up / tipped-over protection
+src/battery.cpp     low-battery protection (thresholds at the top)
 src/follow.cpp      line following (thresholds and speeds at the top)
 src/led.cpp         status LED (V4 shield RGB LED)
 src/remote.cpp      IR remote (button codes at the top)
@@ -154,8 +155,22 @@ refuses drives, turns and modes until it has been back on its wheels for
 **Lift stop** button or `U`). A car standing on a box with its wheels free
 still counts as on the ground.
 
-A flat or switched-off battery shows up as stalls: on USB power alone the
-motors get about 2 V and the UNO can reset. Check `batt` (7-8.4 V is good).
+## Low-battery protection
+
+The pack is two 18650 cells: 8.4 V full, about 6.4 V empty. Driving pulls
+the reading down by about 1 V, so the car judges the **resting** voltage
+(motors off for 0.5 s):
+
+| Resting voltage | State | What happens |
+|---|---|---|
+| 7.0 V and up | ok | |
+| under 7.0 V | low | warning on the console and dashboard; still drives |
+| under 6.6 V (or under 6.0 V for 2 s while driving) | critical | everything stops; drives, turns and modes are refused until charged |
+| under 5.5 V | off | battery switch off (USB power only): driving is refused, since the motors can't run and trying resets the UNO |
+
+Each state clears a little above where it starts, so it doesn't flicker.
+Status reports carry `batt` (latest), `battRest` and `battState`; the
+dashboard's Battery card shows the resting voltage and the state.
 
 ## IR remote
 
@@ -200,7 +215,8 @@ Then open http://127.0.0.1:8000.
   `esp32/include/secrets.h`; see the Wi-Fi section.
 - While the dashboard runs it holds the serial port: stop it before `pio run -t upload`.
 - The battery voltage is approximate (Elegoo's divider formula). It reads about
-  7.2 V on a charged pack, which is plausible, but it isn't checked with a meter.
+  8.3 V on a fully charged pack, which is plausible, but it isn't checked with
+  a meter.
 
 **Driving from the dashboard** (the Drive panel, under the camera):
 

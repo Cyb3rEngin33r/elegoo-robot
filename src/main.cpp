@@ -39,6 +39,9 @@
 // and refuses a held forward key; obstacle avoidance backs up and looks
 // around; line following stops.
 //
+// Battery: under 7.0 V (resting) it warns; under 6.6 V, or with the switch
+// off, it stops everything and won't drive (see battery.h).
+//
 // The car never drives on power-up. Both modes wait 1 s before moving.
 // Any drive command or x also stops them.
 //
@@ -46,6 +49,7 @@
 
 #include <Arduino.h>
 #include "avoid.h"
+#include "battery.h"
 #include "bump.h"
 #include "follow.h"
 #include "guard.h"
@@ -90,13 +94,23 @@ void stopDriving() {
   driveUntil = 0;
 }
 
-// Picked up or tipped over: say so (not on every repeated command).
-bool refuseOffGround() {
-  if (Lift::allowsDriving()) return false;
+// Picked up, tipped over or battery too low: say why (not on every
+// repeated command) and refuse.
+bool refuseToDrive() {
+  bool lifted = !Lift::allowsDriving();
+  if (!lifted && Battery::allowsDriving()) return false;
   static unsigned long lastSaid = 0;
   if (!lastSaid || millis() - lastSaid > 2000) {
     lastSaid = millis();
-    Serial.println(F("lift: off its wheels, not driving (u turns this check off)"));
+    if (lifted) {
+      Serial.println(F("lift: off its wheels, not driving (u turns this check off)"));
+    } else {
+      Serial.print(F("battery: "));
+      Serial.print(Battery::restVolts(), 2);
+      Serial.println(Battery::state() == Battery::State::Off
+                         ? F(" V, battery switch off: not driving")
+                         : F(" V, too low: not driving until charged"));
+    }
   }
   return true;
 }
@@ -104,7 +118,7 @@ bool refuseOffGround() {
 void driveFor(int left, int right, unsigned long ms = 400) {
   Avoid::stop();
   Follow::stop();
-  if (refuseOffGround()) {
+  if (refuseToDrive()) {
     stopDriving();
     return;
   }
@@ -134,7 +148,7 @@ void driveFor(int left, int right, unsigned long ms = 400) {
 // Gyro turn on the spot; positive = left.
 void turnBy(int degrees) {
   stopAll();  // also forgets a bump: turning away is how to get clear
-  if (refuseOffGround()) return;
+  if (refuseToDrive()) return;
   Guard::clear();
   Steer::turn(degrees, speed);
 }
@@ -146,7 +160,7 @@ void toggleMode(bool lineFollowing) {
     return;
   }
   stopAll();
-  if (refuseOffGround()) return;
+  if (refuseToDrive()) return;
   panAngle = 90;
   if (lineFollowing) Follow::start();
   else Avoid::start();
@@ -298,8 +312,9 @@ void loop() {
   }
   Steer::update();
 
-  // Picked up or tipped over: stop everything.
+  // Picked up, tipped over or battery too low: stop everything.
   if (Lift::update()) stopAll();
+  if (Battery::update()) stopAll();
 
   // Bumps (accelerometer): stop whatever is driving.
   Bump::Hit hit = Bump::update();

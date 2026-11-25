@@ -360,14 +360,23 @@ function render(snap) {
   if (st.batt == null) {
     $("batt").textContent = "n/a";
   } else {
-    $("batt").textContent = `${st.batt.toFixed(2)} V`;
-    // 2 x 18650: ~6.0 V empty, ~8.4 V full
-    const pct = Math.max(0, Math.min(1, (st.batt - 6.0) / 2.4));
+    // The car decides on the resting voltage (motors off); driving pulls
+    // the reading down by about 1 V.
+    const rest = st.battRest ?? st.batt, state = st.battState || "ok";
+    $("batt").textContent = `${rest.toFixed(2)} V`;
+    // 2 x 18650: ~6.4 V empty, 8.4 V full
+    const pct = Math.max(0, Math.min(1, (rest - 6.4) / 2.0));
     $("battBar").style.width = `${pct * 100}%`;
-    $("battBar").style.background = pct < 0.2 ? "var(--bad)" : pct < 0.45 ? "var(--warn)" : "var(--ok)";
-    $("battNote").textContent = st.batt < 5.5
-      ? `Battery switch off? (USB power only, raw ${st.battRaw})`
-      : `Approximate (raw ${st.battRaw})`;
+    $("battBar").style.background = state === "ok" ? "var(--ok)" : state === "low" ? "var(--warn)" : "var(--bad)";
+    const note = $("battNote");
+    note.textContent = {
+      ok: "OK",
+      low: "Low: charge soon (under 7.0 V)",
+      critical: "Too low: motors off until charged (under 6.6 V)",
+      off: "Battery switch off: USB power only, motors off",
+    }[state] + (Math.abs(st.batt - rest) >= 0.3 ? ` · ${st.batt.toFixed(2)} V right now (driving)` : "");
+    note.style.color = state === "ok" ? "" : state === "low" ? "var(--warn)" : "var(--bad)";
+    note.style.fontWeight = state === "ok" ? "" : "600";
   }
 
   sensor("sL", st.line[0]); sensor("sM", st.line[1]); sensor("sR", st.line[2]);

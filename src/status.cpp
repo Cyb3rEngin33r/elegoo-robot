@@ -1,4 +1,5 @@
 #include "status.h"
+#include "battery.h"
 #include "bump.h"
 #include "guard.h"
 #include "imu.h"
@@ -12,10 +13,6 @@
 namespace {
 constexpr unsigned long REPORT_EVERY_MS = 250;
 constexpr unsigned long GYRO_EVERY_MS = 100;
-
-// V4 battery divider (10k / 1.5k) on A3, with Elegoo's ~8% correction.
-// Approximate; check against a multimeter if it matters.
-constexpr float VOLTS_PER_COUNT = 0.0375f * 1.08f;
 
 bool enabled = false;
 unsigned long lastReport = 0;
@@ -91,11 +88,13 @@ void update(const __FlashStringHelper* mode, const __FlashStringHelper* state, i
   Serial.print(ln.middle); Serial.print(',');
   Serial.print(ln.right);
 #if KIT_VERSION == 4
-  int raw = analogRead(PIN_VOLTAGE);
   Serial.print(F("],\"batt\":"));
-  Serial.print(raw * VOLTS_PER_COUNT, 2);
-  Serial.print(F(",\"battRaw\":"));
-  Serial.print(raw);
+  Serial.print(Battery::volts(), 2);
+  Serial.print(F(",\"battRest\":"));
+  Serial.print(Battery::restVolts(), 2);
+  Serial.print(F(",\"battState\":\""));
+  Serial.print(Battery::stateName());
+  Serial.print('"');
 #else
   Serial.print(F("],\"batt\":null"));
 #endif
